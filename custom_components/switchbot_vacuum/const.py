@@ -61,7 +61,7 @@ PROP_CLEAN_SUMMARY: Final = 1052
 PROP_AWS_CREDS: Final = 1130
 PROP_FIRMWARE: Final = 1002
 
-# Fan speed mapping
+# Fan speed mapping (S10)
 FAN_SPEEDS: Final = {
     "quiet": 1,
     "standard": 2,
@@ -69,6 +69,16 @@ FAN_SPEEDS: Final = {
     "max": 4,
 }
 FAN_SPEED_LIST: Final = list(FAN_SPEEDS.keys())
+
+# Fan speed mapping (K10+) — SuctionPowLevel 0-3
+K10_FAN_SPEEDS: Final = {
+    "quiet": 0,
+    "standard": 1,
+    "strong": 2,
+    "boost": 3,
+}
+K10_FAN_SPEED_LIST: Final = list(K10_FAN_SPEEDS.keys())
+K10_FAN_LEVEL_TO_SPEED: Final = {v: k for k, v in K10_FAN_SPEEDS.items()}
 
 # Clean types
 CLEAN_TYPE_SWEEP: Final = "sweep"
