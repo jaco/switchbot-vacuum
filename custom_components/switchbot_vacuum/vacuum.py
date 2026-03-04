@@ -22,6 +22,8 @@ from .const import (
     CMD_CLEAN,
     CMD_CONTROL,
     CMD_GO_CHARGE,
+    DEVICE_TYPE_S10,
+    DEVICE_TYPE_TO_MODEL,
     DOMAIN,
     FAN_SPEED_LIST,
     FAN_SPEEDS,
@@ -107,11 +109,12 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
         super().__init__(coordinator)
         self._attr_unique_id = f"{coordinator.device_mac}_vacuum"
         self._attr_name = coordinator.device_name or "SwitchBot Vacuum"
+        device_type = coordinator.entry.data.get("device_type", DEVICE_TYPE_S10)
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, coordinator.device_mac)},
             name=coordinator.device_name or "SwitchBot Vacuum",
             manufacturer="SwitchBot",
-            model="Floor Cleaning Robot S10",
+            model=DEVICE_TYPE_TO_MODEL.get(device_type, device_type),
             sw_version=coordinator.data.get("firmware", ""),
         )
 

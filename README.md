@@ -176,6 +176,19 @@ automation:
           entity_id: vacuum.switchbot_vacuum
 ```
 
+## K10+ room discovery
+
+The K10+ does not expose room names or IDs via the public API. Room IDs are read from the cleaning schedule stored on the robot. To make room entities appear in Home Assistant you need to create at least one schedule with specific rooms selected:
+
+1. Open the SwitchBot app
+2. Go to your K10+ → **Schedule**
+3. Add a new schedule, select **Clean by Room**, and pick the rooms you want
+4. Save the schedule (it can be left **disabled** — it only needs to exist)
+
+The integration reads `smartAreaIds` from all schedules every 24 hours and creates sensor entities named `room0`, `room1`, `room2`, etc. You can also trigger an immediate refresh via the `switchbot_vacuum.force_refresh` service.
+
+Room names are not available through the API — only numeric IDs. To find which ID corresponds to which room, run the robot on a known room using the app and note which ID appears in the schedule.
+
 ## Technical notes
 
 - The integration polls the device every 30 seconds
