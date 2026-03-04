@@ -179,6 +179,23 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
             ) as resp:
                 return await resp.json()
 
+    def _extract_rooms_from_room_plans(self, room_plans: Any) -> dict[str, str]:
+        """Try to extract room names from PROP_ROOM_PLANS property."""
+        rooms: dict[str, str] = {}
+        if not room_plans:
+            return rooms
+        plans = room_plans if isinstance(room_plans, list) else []
+        if isinstance(room_plans, dict):
+            plans = room_plans.get("data", room_plans.get("rooms", []))
+        for room in plans:
+            if not isinstance(room, dict):
+                continue
+            room_id = str(room.get("id", room.get("roomId", "")))
+            name = room.get("name", room.get("roomName", room_id))
+            if room_id.startswith("ROOM_"):
+                rooms[room_id] = name
+        return rooms
+
     async def async_refresh_rooms(self) -> None:
         """Download map from S3 and extract room names."""
         try:
@@ -189,6 +206,16 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
             _LOGGER.warning("Failed to fetch map properties for room refresh")
             return
 
+        # Try room plans property first (no S3 needed)
+        room_plans = props.get(PROP_ROOM_PLANS)
+        rooms_from_plans = self._extract_rooms_from_room_plans(room_plans)
+        if rooms_from_plans:
+            self._rooms = rooms_from_plans
+            self._last_room_refresh = time.time()
+            _LOGGER.info("Loaded %d rooms from room plans property", len(rooms_from_plans))
+            return
+
+        # Fall back to S3 map download
         creds = props.get(PROP_AWS_CREDS)
         map_info = props.get(PROP_MAP_INFO)
         bucket = props.get(PROP_S3_BUCKET, "prod-eu-sweeper-origin")
@@ -198,15 +225,8 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
             return
 
         if creds.get("expiration", 0) < time.time():
-            _LOGGER.info("AWS credentials expired, waking robot to refresh")
-            await self.async_send_command(1009, {"0": "pause"})
-            import asyncio
-            await asyncio.sleep(15)
-            props = await self.async_get_properties([PROP_AWS_CREDS])
-            creds = props.get(PROP_AWS_CREDS, {})
-            if not isinstance(creds, dict) or creds.get("expiration", 0) < time.time():
-                _LOGGER.warning("AWS credentials still expired after wake attempt")
-                return
+            _LOGGER.debug("AWS credentials expired, skipping S3 map download")
+            return
 
         resource = None
         if isinstance(map_info, dict):
@@ -248,6 +268,15 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
         except Exception as exc:
             _LOGGER.warning("Failed to parse map zip: %s", exc)
 
+    async def _background_room_refresh(self) -> None:
+        """Refresh rooms in the background so it doesn't block coordinator updates."""
+        try:
+            await self.async_refresh_rooms()
+            if self._rooms:
+                self.async_set_updated_data(self.data | {"rooms": self._rooms})
+        except Exception:
+            _LOGGER.debug("Background room refresh failed", exc_info=True)
+
     @property
     def rooms(self) -> dict[str, str]:
         """Return room ID to name mapping."""
@@ -268,9 +297,9 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
 
         props = await self.async_get_properties(STATUS_PROPS)
 
-        # Refresh rooms periodically
+        # Refresh rooms periodically (non-blocking to avoid setup timeout)
         if time.time() - self._last_room_refresh > 86400:  # 24h
-            await self.async_refresh_rooms()
+            self.hass.async_create_task(self._background_room_refresh())
 
         return {
             "online": props.get(PROP_ONLINE, False),
