@@ -70,12 +70,12 @@ FAN_SPEEDS: Final = {
 }
 FAN_SPEED_LIST: Final = list(FAN_SPEEDS.keys())
 
-# Fan speed mapping (K10+) — SuctionPowLevel 0-3
+# Fan speed mapping (K10+) — SuctionPowLevel 0-3 (confirmed via app: quiet/standard/strong/max)
 K10_FAN_SPEEDS: Final = {
     "quiet": 0,
     "standard": 1,
     "strong": 2,
-    "boost": 3,
+    "max": 3,
 }
 K10_FAN_SPEED_LIST: Final = list(K10_FAN_SPEEDS.keys())
 K10_FAN_LEVEL_TO_SPEED: Final = {v: k for k, v in K10_FAN_SPEEDS.items()}
