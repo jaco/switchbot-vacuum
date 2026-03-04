@@ -8,7 +8,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResult
 
-from .const import CONF_DEVICE_MAC, CONF_PASSWORD, CONF_USERNAME, DOMAIN
+from .const import CONF_DEVICE_MAC, CONF_PASSWORD, CONF_PRODUCT_KEY, CONF_USERNAME, DOMAIN, DEVICE_TYPE_S10
 from .coordinator import SwitchBotS10Coordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -63,6 +63,8 @@ class SwitchBotS10ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             CONF_USERNAME: self._username,
                             CONF_PASSWORD: self._password,
                             CONF_DEVICE_MAC: device["device_mac"],
+                            "device_type": device.get("device_type", DEVICE_TYPE_S10),
+                            CONF_PRODUCT_KEY: device.get("product_key", ""),
                         },
                     )
                 else:
@@ -92,6 +94,7 @@ class SwitchBotS10ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_USERNAME: self._username,
                         CONF_PASSWORD: self._password,
                         CONF_DEVICE_MAC: device_mac,
+                        "device_type": device.get("device_type", DEVICE_TYPE_S10),
                     },
                 )
 

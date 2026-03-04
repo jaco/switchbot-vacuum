@@ -24,9 +24,17 @@ from .const import (
     CLIENT_ID,
     CONF_DEVICE_MAC,
     CONF_PASSWORD,
+    CONF_PRODUCT_KEY,
     CONF_USERNAME,
-    DEVICE_TYPE_S10,
+    DEVICE_TYPE_K10,
+    SUPPORTED_DEVICE_TYPES,
     DOMAIN,
+    K10_WORK_STATUS_CHARGING,
+    K10_WORK_STATUS_CHARGE_DONE,
+    K10_WORK_STATUS_CLEANING,
+    K10_WORK_STATUS_GO_CHARGE,
+    K10_WORK_STATUS_PAUSED,
+    K10_WORK_STATUS_STANDBY,
     PROP_AWS_CREDS,
     PROP_BATTERY,
     PROP_CLEAN_MODE,
@@ -41,12 +49,28 @@ from .const import (
     S3_REGION,
     TOKEN_REFRESH_SECONDS,
     UPDATE_INTERVAL_SECONDS,
+    WORK_STATUS_CHARGE_DONE,
+    WORK_STATUS_CHARGING,
+    WORK_STATUS_CLEANING,
+    WORK_STATUS_GO_CHARGE,
+    WORK_STATUS_PAUSED,
+    WORK_STATUS_STANDBY,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
 STATUS_PROPS = [PROP_ONLINE, PROP_BATTERY, PROP_WORK_STATUS, PROP_ERROR_CODE,
                 PROP_CLEAN_MODE, PROP_CLEAN_SUMMARY, PROP_FIRMWARE]
+
+# K10+ WorkingStatus -> S10-compatible work_status
+K10_STATUS_MAP = {
+    K10_WORK_STATUS_STANDBY: WORK_STATUS_STANDBY,
+    K10_WORK_STATUS_CLEANING: WORK_STATUS_CLEANING,
+    K10_WORK_STATUS_GO_CHARGE: WORK_STATUS_GO_CHARGE,
+    K10_WORK_STATUS_CHARGING: WORK_STATUS_CHARGING,
+    K10_WORK_STATUS_PAUSED: WORK_STATUS_PAUSED,
+    K10_WORK_STATUS_CHARGE_DONE: WORK_STATUS_CHARGE_DONE,
+}
 
 
 class SwitchBotS10Coordinator(DataUpdateCoordinator):
@@ -71,6 +95,10 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
             name=DOMAIN,
             update_interval=timedelta(seconds=UPDATE_INTERVAL_SECONDS),
         )
+
+    def _is_k10(self) -> bool:
+        """Return True if device is K10+."""
+        return self.entry.data.get("device_type") == DEVICE_TYPE_K10
 
     def _headers(self, auth: str | None = None) -> dict[str, str]:
         """Build common request headers."""
@@ -113,7 +141,7 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
                 self._token_expiry = time.time() + TOKEN_REFRESH_SECONDS
 
     async def async_discover_devices(self) -> list[dict[str, Any]]:
-        """Find all S10 devices in the account."""
+        """Find all supported vacuum devices in the account."""
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 f"{API_HOST_EU}/wonder/device/v3/getdevice",
@@ -124,10 +152,13 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
                 data = await resp.json()
                 devices = []
                 for device in data.get("body", {}).get("Items", []):
-                    if device.get("device_detail", {}).get("device_type") == DEVICE_TYPE_S10:
+                    device_type = device.get("device_detail", {}).get("device_type")
+                    if device_type in SUPPORTED_DEVICE_TYPES:
                         devices.append({
                             "device_mac": device["device_mac"],
                             "device_name": device.get("device_name", "SwitchBot Vacuum"),
+                            "device_type": device_type,
+                            "product_key": device.get("product_key", ""),
                             "user_id": device.get("userID"),
                             "group_id": device.get("groupID"),
                         })
@@ -140,7 +171,7 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
         self.user_id = user_id
 
     async def async_get_properties(self, property_ids: list[int]) -> dict[int, Any]:
-        """Fetch device properties from shadow API."""
+        """Fetch device properties from shadow API (S10 only)."""
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 f"{API_HOST_EU}/device/device/v1/shadow/getByIDs",
@@ -159,7 +190,7 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
     async def async_send_command(
         self, function_id: int, params: dict[str, Any]
     ) -> dict[str, Any]:
-        """Send a command to the device via invokeFunc."""
+        """Send a command to the device via invokeFunc (S10 only)."""
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 f"{API_HOST_EU}/command/cmd/api/v1/func/invoke",
@@ -179,6 +210,81 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
             ) as resp:
                 return await resp.json()
 
+    async def _get_product_key(self) -> str:
+        """Return product_key from config entry or re-discover it."""
+        key = self.entry.data.get(CONF_PRODUCT_KEY, "")
+        if key:
+            return key
+        _LOGGER.info("product_key missing from config, re-discovering devices")
+        devices = await self.async_discover_devices()
+        for device in devices:
+            if device["device_mac"] == self.device_mac:
+                key = device.get("product_key", "")
+                if key:
+                    _LOGGER.info("Found product_key for %s: %s", self.device_mac, key)
+                break
+        return key
+
+    async def async_send_action(
+        self, identifier: str, input_data: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Send a command to K10+ via setAction."""
+        product_key = await self._get_product_key()
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{API_HOST_EU}/wonder/sweeper360/v1/device/setAction",
+                headers=self._headers(),
+                json={
+                    "productKey": product_key,
+                    "deviceName": self.device_mac,
+                    "identifier": identifier,
+                    "input": input_data or {},
+                },
+                timeout=aiohttp.ClientTimeout(total=API_TIMEOUT),
+            ) as resp:
+                return await resp.json()
+
+    async def async_get_k10_info(self) -> dict[str, Any]:
+        """Fetch K10+ device info from getInfo endpoint."""
+        product_key = await self._get_product_key()
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{API_HOST_EU}/wonder/sweeper360/v1/device/getInfo",
+                headers=self._headers(),
+                json={
+                    "productKey": product_key,
+                    "deviceName": self.device_mac,
+                },
+                timeout=aiohttp.ClientTimeout(total=API_TIMEOUT),
+            ) as resp:
+                data = await resp.json()
+                if data.get("statusCode") != 100:
+                    raise UpdateFailed(f"K10+ getInfo failed: {data}")
+                return data.get("body", {})
+
+    async def async_refresh_k10_rooms(self) -> None:
+        """Fetch K10+ room IDs from GetCleanPolicyList and build room map."""
+        try:
+            resp = await self.async_send_action("GetCleanPolicyList")
+            if resp.get("statusCode") != 100:
+                _LOGGER.warning("GetCleanPolicyList failed: %s", resp)
+                return
+
+            result = json.loads(resp["body"]["result"])
+            policy = json.loads(result["CleanPolicyList"])
+
+            room_ids: set[int] = set()
+            for entry in policy.get("value", []):
+                for rid in entry.get("smartAreaIds", []):
+                    room_ids.add(rid)
+
+            if room_ids:
+                self._rooms = {f"room{rid}": f"room{rid}" for rid in sorted(room_ids)}
+                self._last_room_refresh = time.time()
+                _LOGGER.info("Loaded %d K10+ rooms: %s", len(self._rooms), list(self._rooms))
+        except Exception as exc:
+            _LOGGER.warning("Failed to refresh K10+ rooms: %s", exc)
+
     def _extract_rooms_from_room_plans(self, room_plans: Any) -> dict[str, str]:
         """Try to extract room names from PROP_ROOM_PLANS property."""
         rooms: dict[str, str] = {}
@@ -197,7 +303,12 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
         return rooms
 
     async def async_refresh_rooms(self) -> None:
-        """Download map from S3 and extract room names."""
+        """Refresh rooms — branches per device type."""
+        if self._is_k10():
+            await self.async_refresh_k10_rooms()
+            return
+
+        # S10: download map from S3
         try:
             props = await self.async_get_properties(
                 [PROP_MAP_INFO, PROP_AWS_CREDS, PROP_S3_BUCKET, PROP_ROOM_PLANS]
@@ -206,7 +317,6 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
             _LOGGER.warning("Failed to fetch map properties for room refresh")
             return
 
-        # Try room plans property first (no S3 needed)
         room_plans = props.get(PROP_ROOM_PLANS)
         rooms_from_plans = self._extract_rooms_from_room_plans(room_plans)
         if rooms_from_plans:
@@ -215,7 +325,6 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
             _LOGGER.info("Loaded %d rooms from room plans property", len(rooms_from_plans))
             return
 
-        # Fall back to S3 map download
         creds = props.get(PROP_AWS_CREDS)
         map_info = props.get(PROP_MAP_INFO)
         bucket = props.get(PROP_S3_BUCKET, "prod-eu-sweeper-origin")
@@ -287,18 +396,43 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
         if not self.access_token or time.time() >= self._token_expiry:
             await self.async_login()
 
+    async def _async_update_data_k10(self) -> dict[str, Any]:
+        """Fetch status data from K10+ via getInfo."""
+        info = await self.async_get_k10_info()
+
+        raw_status = info.get("WorkingStatus", K10_WORK_STATUS_STANDBY)
+        work_status = K10_STATUS_MAP.get(raw_status, WORK_STATUS_STANDBY)
+        online = info.get("online_status") == "online"
+        battery = info.get("BatteryLevel", 0)
+        fan_level = info.get("SuctionPowLevel", 1)
+
+        if time.time() - self._last_room_refresh > 86400:
+            self.hass.async_create_task(self._background_room_refresh())
+
+        return {
+            "online": online,
+            "battery": battery,
+            "work_status": work_status,
+            "error_code": 0,
+            "clean_mode": {"fan_level": fan_level, "type": "sweep", "times": 1, "water_level": 1},
+            "clean_summary": {},
+            "firmware": "",
+            "rooms": self._rooms,
+        }
+
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch status data from device."""
         await self._ensure_token()
 
         if not self.device_mac:
-            # Load from config entry
             self.device_mac = self.entry.data.get(CONF_DEVICE_MAC)
+
+        if self._is_k10():
+            return await self._async_update_data_k10()
 
         props = await self.async_get_properties(STATUS_PROPS)
 
-        # Refresh rooms periodically (non-blocking to avoid setup timeout)
-        if time.time() - self._last_room_refresh > 86400:  # 24h
+        if time.time() - self._last_room_refresh > 86400:
             self.hass.async_create_task(self._background_room_refresh())
 
         return {
