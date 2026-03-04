@@ -114,6 +114,7 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
         device_type = coordinator.entry.data.get("device_type", DEVICE_TYPE_S10)
         self._is_k10 = device_type == DEVICE_TYPE_K10
         self._attr_fan_speed_list = K10_FAN_SPEED_LIST if self._is_k10 else FAN_SPEED_LIST
+        self._k10_local_fan_speed: str | None = None  # tracks last-set speed (getInfo is stale)
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, coordinator.device_mac)},
             name=coordinator.device_name or "SwitchBot Vacuum",
@@ -136,10 +137,15 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
     @property
     def fan_speed(self) -> str | None:
         """Return current fan speed."""
-        mode = self.coordinator.data.get("clean_mode", {})
-        level = mode.get("fan_level", 0 if self._is_k10 else 1) if isinstance(mode, dict) else 0
         if self._is_k10:
+            # getInfo returns stale SuctionPowLevel — use locally tracked value if available
+            if self._k10_local_fan_speed is not None:
+                return self._k10_local_fan_speed
+            mode = self.coordinator.data.get("clean_mode", {})
+            level = mode.get("fan_level", 0) if isinstance(mode, dict) else 0
             return K10_FAN_LEVEL_TO_SPEED.get(level, "quiet")
+        mode = self.coordinator.data.get("clean_mode", {})
+        level = mode.get("fan_level", 1) if isinstance(mode, dict) else 1
         return FAN_LEVEL_TO_SPEED.get(level, "quiet")
 
     @property
@@ -216,6 +222,8 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
             await self.coordinator.async_send_action(
                 "SetSuctionPowLevelWithMode", {"Level": level}
             )
+            self._k10_local_fan_speed = fan_speed
+            self.async_write_ha_state()
         else:
             level = FAN_SPEEDS.get(fan_speed, 1)
             mode = self.coordinator.data.get("clean_mode", {})
