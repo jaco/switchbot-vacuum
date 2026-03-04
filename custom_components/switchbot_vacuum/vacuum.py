@@ -22,11 +22,15 @@ from .const import (
     CMD_CLEAN,
     CMD_CONTROL,
     CMD_GO_CHARGE,
+    DEVICE_TYPE_K10,
     DEVICE_TYPE_S10,
     DEVICE_TYPE_TO_MODEL,
     DOMAIN,
     FAN_SPEED_LIST,
     FAN_SPEEDS,
+    K10_FAN_LEVEL_TO_SPEED,
+    K10_FAN_SPEED_LIST,
+    K10_FAN_SPEEDS,
     WORK_STATUS_CHARGE_DONE,
     WORK_STATUS_CHARGING,
     WORK_STATUS_CLEANING,
@@ -102,14 +106,14 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
         | VacuumEntityFeature.SEND_COMMAND
         | VacuumEntityFeature.BATTERY
     )
-    _attr_fan_speed_list = FAN_SPEED_LIST
-
     def __init__(self, coordinator: SwitchBotS10Coordinator) -> None:
         """Initialize."""
         super().__init__(coordinator)
         self._attr_unique_id = f"{coordinator.device_mac}_vacuum"
         self._attr_name = coordinator.device_name or "SwitchBot Vacuum"
         device_type = coordinator.entry.data.get("device_type", DEVICE_TYPE_S10)
+        self._is_k10 = device_type == DEVICE_TYPE_K10
+        self._attr_fan_speed_list = K10_FAN_SPEED_LIST if self._is_k10 else FAN_SPEED_LIST
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, coordinator.device_mac)},
             name=coordinator.device_name or "SwitchBot Vacuum",
@@ -133,7 +137,9 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
     def fan_speed(self) -> str | None:
         """Return current fan speed."""
         mode = self.coordinator.data.get("clean_mode", {})
-        level = mode.get("fan_level", 1) if isinstance(mode, dict) else 1
+        level = mode.get("fan_level", 0 if self._is_k10 else 1) if isinstance(mode, dict) else 0
+        if self._is_k10:
+            return K10_FAN_LEVEL_TO_SPEED.get(level, "quiet")
         return FAN_LEVEL_TO_SPEED.get(level, "quiet")
 
     @property
@@ -157,52 +163,72 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
 
     async def async_start(self) -> None:
         """Start cleaning."""
-        mode = self.coordinator.data.get("clean_mode", {})
-        if not isinstance(mode, dict):
-            mode = {}
-        await self.coordinator.async_send_command(CMD_CLEAN, {
-            "0": "clean_all",
-            "1": {
-                "force_order": False,
-                "mode": {
-                    "fan_level": mode.get("fan_level", 1),
-                    "times": mode.get("times", 1),
-                    "type": mode.get("type", "sweep_mop"),
-                    "water_level": mode.get("water_level", 1),
+        if self._is_k10:
+            await self.coordinator.async_send_action(
+                "StartDefaultClean", {"CleanTimes": 1}
+            )
+        else:
+            mode = self.coordinator.data.get("clean_mode", {})
+            if not isinstance(mode, dict):
+                mode = {}
+            await self.coordinator.async_send_command(CMD_CLEAN, {
+                "0": "clean_all",
+                "1": {
+                    "force_order": False,
+                    "mode": {
+                        "fan_level": mode.get("fan_level", 1),
+                        "times": mode.get("times", 1),
+                        "type": mode.get("type", "sweep_mop"),
+                        "water_level": mode.get("water_level", 1),
+                    },
                 },
-            },
-        })
+            })
         await self.coordinator.async_request_refresh()
 
     async def async_stop(self, **kwargs: Any) -> None:
         """Stop cleaning."""
-        await self.coordinator.async_send_command(CMD_CONTROL, {"0": "stop"})
+        if self._is_k10:
+            await self.coordinator.async_send_action("PauseRobot")
+        else:
+            await self.coordinator.async_send_command(CMD_CONTROL, {"0": "stop"})
         await self.coordinator.async_request_refresh()
 
     async def async_pause(self) -> None:
         """Pause cleaning."""
-        await self.coordinator.async_send_command(CMD_CONTROL, {"0": "pause"})
+        if self._is_k10:
+            await self.coordinator.async_send_action("PauseRobot")
+        else:
+            await self.coordinator.async_send_command(CMD_CONTROL, {"0": "pause"})
         await self.coordinator.async_request_refresh()
 
     async def async_return_to_base(self, **kwargs: Any) -> None:
         """Return to charging base."""
-        await self.coordinator.async_send_command(CMD_GO_CHARGE, {})
+        if self._is_k10:
+            await self.coordinator.async_send_action("ReturnChargeBase")
+        else:
+            await self.coordinator.async_send_command(CMD_GO_CHARGE, {})
         await self.coordinator.async_request_refresh()
 
     async def async_set_fan_speed(self, fan_speed: str, **kwargs: Any) -> None:
         """Set fan speed."""
-        level = FAN_SPEEDS.get(fan_speed, 1)
-        mode = self.coordinator.data.get("clean_mode", {})
-        if not isinstance(mode, dict):
-            mode = {}
-        await self.coordinator.async_send_command(CMD_CHANGE_MODE, {
-            "0": {
-                "fan_level": level,
-                "times": mode.get("times", 1),
-                "type": mode.get("type", "sweep_mop"),
-                "water_level": mode.get("water_level", 1),
-            },
-        })
+        if self._is_k10:
+            level = K10_FAN_SPEEDS.get(fan_speed, 0)
+            await self.coordinator.async_send_action(
+                "SetSuctionPowLevelWithMode", {"Level": level}
+            )
+        else:
+            level = FAN_SPEEDS.get(fan_speed, 1)
+            mode = self.coordinator.data.get("clean_mode", {})
+            if not isinstance(mode, dict):
+                mode = {}
+            await self.coordinator.async_send_command(CMD_CHANGE_MODE, {
+                "0": {
+                    "fan_level": level,
+                    "times": mode.get("times", 1),
+                    "type": mode.get("type", "sweep_mop"),
+                    "water_level": mode.get("water_level", 1),
+                },
+            })
         await self.coordinator.async_request_refresh()
 
     async def async_send_command(
