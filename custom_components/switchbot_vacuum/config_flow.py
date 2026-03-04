@@ -1,4 +1,4 @@
-"""Config flow for SwitchBot S10."""
+"""Config flow for SwitchBot Vacuum."""
 from __future__ import annotations
 
 import logging
@@ -22,7 +22,7 @@ USER_SCHEMA = vol.Schema(
 
 
 class SwitchBotS10ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for SwitchBot S10."""
+    """Handle a config flow for SwitchBot Vacuum."""
 
     VERSION = 1
 

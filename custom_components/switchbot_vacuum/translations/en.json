@@ -2,7 +2,7 @@
   "config": {
     "step": {
       "user": {
-        "title": "SwitchBot S10",
+        "title": "SwitchBot Vacuum",
         "description": "Enter your SwitchBot account credentials",
         "data": {
           "username": "Email",
@@ -19,7 +19,7 @@
     },
     "error": {
       "invalid_auth": "Invalid authentication",
-      "no_devices": "No SwitchBot S10 devices found in account",
+      "no_devices": "No SwitchBot Vacuum devices found in account",
       "cannot_connect": "Cannot connect to SwitchBot API"
     }
   }

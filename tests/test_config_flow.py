@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from custom_components.switchbot_s10.config_flow import SwitchBotS10ConfigFlow
-from custom_components.switchbot_s10.const import DOMAIN
+from custom_components.switchbot_vacuum.config_flow import SwitchBotS10ConfigFlow
+from custom_components.switchbot_vacuum.const import DOMAIN
 
 
 @pytest.fixture(autouse=True)
@@ -50,7 +50,7 @@ class TestUserStep:
     async def test_single_device_creates_entry(self, mock_hass):
         """Test successful config flow with single device creates entry."""
         with patch(
-            "custom_components.switchbot_s10.config_flow.SwitchBotS10Coordinator"
+            "custom_components.switchbot_vacuum.config_flow.SwitchBotS10Coordinator"
         ) as mock_coord_cls:
             mock_coord = AsyncMock()
             mock_coord.async_login = AsyncMock()
@@ -78,7 +78,7 @@ class TestUserStep:
     async def test_auth_error(self, mock_hass):
         """Test config flow handles auth failure."""
         with patch(
-            "custom_components.switchbot_s10.config_flow.SwitchBotS10Coordinator"
+            "custom_components.switchbot_vacuum.config_flow.SwitchBotS10Coordinator"
         ) as mock_coord_cls:
             mock_coord = AsyncMock()
             mock_coord.async_login = AsyncMock(side_effect=Exception("auth failed"))
@@ -96,7 +96,7 @@ class TestUserStep:
     async def test_no_devices_error(self, mock_hass):
         """Test config flow handles no S10 devices found."""
         with patch(
-            "custom_components.switchbot_s10.config_flow.SwitchBotS10Coordinator"
+            "custom_components.switchbot_vacuum.config_flow.SwitchBotS10Coordinator"
         ) as mock_coord_cls:
             mock_coord = AsyncMock()
             mock_coord.async_login = AsyncMock()
@@ -119,7 +119,7 @@ class TestDeviceStep:
     async def test_multiple_devices_shows_picker(self, mock_hass):
         """Test multiple S10 devices triggers device step."""
         with patch(
-            "custom_components.switchbot_s10.config_flow.SwitchBotS10Coordinator"
+            "custom_components.switchbot_vacuum.config_flow.SwitchBotS10Coordinator"
         ) as mock_coord_cls:
             mock_coord = AsyncMock()
             mock_coord.async_login = AsyncMock()

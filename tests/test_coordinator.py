@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from aiohttp import ClientSession
 
-from custom_components.switchbot_s10.coordinator import SwitchBotS10Coordinator
+from custom_components.switchbot_vacuum.coordinator import SwitchBotS10Coordinator
 
 
 @pytest.fixture(autouse=True)

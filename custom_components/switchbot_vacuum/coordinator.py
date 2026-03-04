@@ -1,4 +1,4 @@
-"""Data update coordinator for SwitchBot S10."""
+"""Data update coordinator for SwitchBot Vacuum."""
 from __future__ import annotations
 
 import io
@@ -50,7 +50,7 @@ STATUS_PROPS = [PROP_ONLINE, PROP_BATTERY, PROP_WORK_STATUS, PROP_ERROR_CODE,
 
 
 class SwitchBotS10Coordinator(DataUpdateCoordinator):
-    """Manage fetching data from SwitchBot S10 API."""
+    """Manage fetching data from SwitchBot Vacuum API."""
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize."""
@@ -127,7 +127,7 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
                     if device.get("device_detail", {}).get("device_type") == DEVICE_TYPE_S10:
                         devices.append({
                             "device_mac": device["device_mac"],
-                            "device_name": device.get("device_name", "SwitchBot S10"),
+                            "device_name": device.get("device_name", "SwitchBot Vacuum"),
                             "user_id": device.get("userID"),
                             "group_id": device.get("groupID"),
                         })

@@ -1,4 +1,4 @@
-"""Vacuum entity for SwitchBot S10."""
+"""Vacuum entity for SwitchBot Vacuum."""
 from __future__ import annotations
 
 import logging
@@ -88,7 +88,7 @@ async def async_setup_entry(
 
 
 class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuumEntity):
-    """SwitchBot S10 vacuum entity."""
+    """SwitchBot Vacuum vacuum entity."""
 
     _attr_supported_features = (
         VacuumEntityFeature.STATE
@@ -106,10 +106,10 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
         """Initialize."""
         super().__init__(coordinator)
         self._attr_unique_id = f"{coordinator.device_mac}_vacuum"
-        self._attr_name = coordinator.device_name or "SwitchBot S10"
+        self._attr_name = coordinator.device_name or "SwitchBot Vacuum"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, coordinator.device_mac)},
-            name=coordinator.device_name or "SwitchBot S10",
+            name=coordinator.device_name or "SwitchBot Vacuum",
             manufacturer="SwitchBot",
             model="Floor Cleaning Robot S10",
             sw_version=coordinator.data.get("firmware", ""),

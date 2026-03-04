@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from custom_components.switchbot_s10.const import (
+from custom_components.switchbot_vacuum.const import (
     WORK_STATUS_CHARGE_DONE,
     WORK_STATUS_CHARGING,
     WORK_STATUS_CLEANING,
@@ -13,7 +13,7 @@ from custom_components.switchbot_s10.const import (
     WORK_STATUS_PAUSED,
     WORK_STATUS_STANDBY,
 )
-from custom_components.switchbot_s10.vacuum import SwitchBotS10Vacuum
+from custom_components.switchbot_vacuum.vacuum import SwitchBotS10Vacuum
 
 
 @pytest.fixture

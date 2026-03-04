@@ -1,7 +1,7 @@
-"""Constants for the SwitchBot S10 integration."""
+"""Constants for the SwitchBot Vacuum integration."""
 from typing import Final
 
-DOMAIN: Final = "switchbot_s10"
+DOMAIN: Final = "switchbot_vacuum"
 
 # Config
 CONF_USERNAME: Final = "username"

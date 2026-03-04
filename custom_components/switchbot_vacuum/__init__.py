@@ -1,4 +1,4 @@
-"""The SwitchBot S10 integration."""
+"""The SwitchBot Vacuum integration."""
 from __future__ import annotations
 
 import logging
@@ -16,7 +16,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up SwitchBot S10 from a config entry."""
+    """Set up SwitchBot Vacuum from a config entry."""
     coordinator = SwitchBotS10Coordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
 

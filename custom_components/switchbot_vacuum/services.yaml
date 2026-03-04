@@ -4,7 +4,7 @@ clean_rooms:
   target:
     entity:
       domain: vacuum
-      integration: switchbot_s10
+      integration: switchbot_vacuum
   fields:
     rooms:
       name: "Rooms"
@@ -63,4 +63,4 @@ force_refresh:
   target:
     entity:
       domain: vacuum
-      integration: switchbot_s10
+      integration: switchbot_vacuum
