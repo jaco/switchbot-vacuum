@@ -7,6 +7,7 @@ DOMAIN: Final = "switchbot_vacuum"
 CONF_USERNAME: Final = "username"
 CONF_PASSWORD: Final = "password"
 CONF_DEVICE_MAC: Final = "device_mac"
+CONF_PRODUCT_KEY: Final = "product_key"
 
 # API
 API_AUTH_HOST: Final = "https://account.api.switchbot.net"
@@ -22,6 +23,14 @@ DEVICE_TYPE_TO_MODEL: Final = {
     DEVICE_TYPE_S10: "Floor Cleaning Robot S10",
     DEVICE_TYPE_K10: "Mini Robot Vacuum K10+",
 }
+
+# K10+ WorkingStatus values
+K10_WORK_STATUS_STANDBY: Final = 0
+K10_WORK_STATUS_CLEANING: Final = 1
+K10_WORK_STATUS_GO_CHARGE: Final = 2
+K10_WORK_STATUS_CHARGING: Final = 3
+K10_WORK_STATUS_PAUSED: Final = 4
+K10_WORK_STATUS_CHARGE_DONE: Final = 7
 
 # Commands
 CMD_CLEAN: Final = 1001
