@@ -15,6 +15,13 @@ CLIENT_ID: Final = "5nnwmhmsa9xxskm14hd85lm9bm"
 APP_VERSION: Final = "8.6.1"
 API_TIMEOUT: Final = 30
 DEVICE_TYPE_S10: Final = "WoSweeperOrigin"
+DEVICE_TYPE_K10: Final = "WoSweeperMini"
+SUPPORTED_DEVICE_TYPES: Final = {DEVICE_TYPE_S10, DEVICE_TYPE_K10}
+
+DEVICE_TYPE_TO_MODEL: Final = {
+    DEVICE_TYPE_S10: "Floor Cleaning Robot S10",
+    DEVICE_TYPE_K10: "Mini Robot Vacuum K10+",
+}
 
 # Commands
 CMD_CLEAN: Final = 1001

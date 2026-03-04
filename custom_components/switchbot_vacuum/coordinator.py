@@ -25,7 +25,7 @@ from .const import (
     CONF_DEVICE_MAC,
     CONF_PASSWORD,
     CONF_USERNAME,
-    DEVICE_TYPE_S10,
+    SUPPORTED_DEVICE_TYPES,
     DOMAIN,
     PROP_AWS_CREDS,
     PROP_BATTERY,
@@ -124,10 +124,12 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
                 data = await resp.json()
                 devices = []
                 for device in data.get("body", {}).get("Items", []):
-                    if device.get("device_detail", {}).get("device_type") == DEVICE_TYPE_S10:
+                    device_type = device.get("device_detail", {}).get("device_type")
+                    if device_type in SUPPORTED_DEVICE_TYPES:
                         devices.append({
                             "device_mac": device["device_mac"],
                             "device_name": device.get("device_name", "SwitchBot Vacuum"),
+                            "device_type": device_type,
                             "user_id": device.get("userID"),
                             "group_id": device.get("groupID"),
                         })
