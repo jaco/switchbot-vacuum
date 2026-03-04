@@ -210,11 +210,26 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
             ) as resp:
                 return await resp.json()
 
+    async def _get_product_key(self) -> str:
+        """Return product_key from config entry or re-discover it."""
+        key = self.entry.data.get(CONF_PRODUCT_KEY, "")
+        if key:
+            return key
+        _LOGGER.info("product_key missing from config, re-discovering devices")
+        devices = await self.async_discover_devices()
+        for device in devices:
+            if device["device_mac"] == self.device_mac:
+                key = device.get("product_key", "")
+                if key:
+                    _LOGGER.info("Found product_key for %s: %s", self.device_mac, key)
+                break
+        return key
+
     async def async_send_action(
         self, identifier: str, input_data: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         """Send a command to K10+ via setAction."""
-        product_key = self.entry.data.get(CONF_PRODUCT_KEY, "")
+        product_key = await self._get_product_key()
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 f"{API_HOST_EU}/wonder/sweeper360/v1/device/setAction",
@@ -231,7 +246,7 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
 
     async def async_get_k10_info(self) -> dict[str, Any]:
         """Fetch K10+ device info from getInfo endpoint."""
-        product_key = self.entry.data.get(CONF_PRODUCT_KEY, "")
+        product_key = await self._get_product_key()
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 f"{API_HOST_EU}/wonder/sweeper360/v1/device/getInfo",
