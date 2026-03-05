@@ -310,23 +310,31 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
                 _LOGGER.warning("Unknown room: %s", room)
                 resolved.append(room)
 
-        room_mode = {
-            "fan_level": fan_level,
-            "times": times,
-            "type": mode,
-            "water_level": water_level,
-        }
-        room_list = [
-            {"room_id": r, "mode": dict(room_mode)} for r in resolved
-        ]
-        await self.coordinator.async_send_command(CMD_CLEAN, {
-            "0": "clean_rooms",
-            "1": {
-                "force_order": force_order,
-                "mode": room_mode,
-                "rooms": room_list,
-            },
-        })
+        if self._is_k10:
+            _LOGGER.warning(
+                "K10+ does not support room-specific cleaning via cloud API "
+                "(uses local Qihoo SDK in the official app). Starting whole-house clean."
+            )
+            await self.coordinator.async_send_action("StartDefaultClean", {"CleanTimes": times})
+            self._optimistic_update(K10_WORK_STATUS_CLEANING)
+        else:
+            room_mode = {
+                "fan_level": fan_level,
+                "times": times,
+                "type": mode,
+                "water_level": water_level,
+            }
+            room_list = [
+                {"room_id": r, "mode": dict(room_mode)} for r in resolved
+            ]
+            await self.coordinator.async_send_command(CMD_CLEAN, {
+                "0": "clean_rooms",
+                "1": {
+                    "force_order": force_order,
+                    "mode": room_mode,
+                    "rooms": room_list,
+                },
+            })
         await self.coordinator.async_request_refresh()
 
     async def async_force_refresh(self) -> None:
