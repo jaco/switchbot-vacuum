@@ -187,11 +187,7 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
                 },
                 timeout=aiohttp.ClientTimeout(total=API_TIMEOUT),
             ) as resp:
-                result = await resp.json()
-                _LOGGER.warning(
-                    "invokeFunc functionID=%s result: %s", function_id, result
-                )
-                return result
+                return await resp.json()
 
     async def _get_product_key(self) -> str:
         """Return product_key from config entry or re-discover it."""
