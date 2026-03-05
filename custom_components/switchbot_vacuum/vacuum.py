@@ -189,11 +189,12 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
         attrs: dict[str, Any] = {}
 
         if isinstance(mode, dict):
+            attrs["times"] = mode.get("times", 1)
+        if not self._is_k10 and isinstance(mode, dict):
             attrs["water_level"] = mode.get("water_level", 1)
             attrs["clean_type"] = mode.get("type", "sweep_mop")
-            attrs["times"] = mode.get("times", 1)
 
-        if isinstance(summary, dict):
+        if not self._is_k10 and isinstance(summary, dict):
             attrs["last_clean_area"] = summary.get("clean_area", 0)
             attrs["last_clean_time"] = summary.get("clean_time", 0)
 

@@ -189,6 +189,20 @@ The integration reads `smartAreaIds` from all schedules every 24 hours and creat
 
 Room names are not available through the API — only numeric IDs. To find which ID corresponds to which room, run the robot on a known room using the app and note which ID appears in the schedule.
 
+## K10+ room cleaning — not supported
+
+The K10+ **cannot** clean individual rooms via this integration, even though the SwitchBot app supports it. Here is why:
+
+Room cleaning on the K10+ goes through **Qihoo's proprietary IoT cloud API** (`eu1-sapp-api.botslab.com`), not the standard SwitchBot API. Every request to this API requires a cryptographic `sign` query parameter. The signing algorithm is implemented inside Flutter's AOT-compiled binary (`libapp.so`) and has been extensively reverse-engineered without success:
+
+- Over 50 combinations of MD5, SHA1, SHA256, HMAC-SHA1, and HMAC-SHA256 were tried with inputs including the app key, app secret, timestamp, nonce, auth token, cookie string, device ID, and all URL parameters — all return `{"code":1001,"msg":"Sign error"}`.
+- The Dart/Flutter code is compiled to ARM64 machine code with no readable symbols, making static analysis very difficult. The signing logic is buried in 14 MB of code with no accessible source.
+- The `sign_ts`, `sign_no`, `appkey`, `m2`, `appver`, `ci_brand`, `ci_model`, `ci_osver`, and `sign` parameters were all identified from APK analysis, but the exact input and order for the hash remain unknown.
+
+Until someone intercepts a valid signed request (e.g. via SSL proxy on a rooted device) or finds the signing formula through further binary analysis, K10+ room-by-room cleaning cannot be implemented.
+
+The `switchbot_vacuum.clean_rooms` service will **not appear** for K10+ devices. Full-house cleaning (`vacuum.start`) works normally.
+
 ## Technical notes
 
 - The integration polls the device every 30 seconds
