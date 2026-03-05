@@ -31,9 +31,12 @@ from .const import (
     K10_FAN_LEVEL_TO_SPEED,
     K10_FAN_SPEED_LIST,
     K10_FAN_SPEEDS,
-    K10_WORK_STATUS_CHARGE_DONE,
     K10_WORK_STATUS_CHARGING,
     K10_WORK_STATUS_CLEANING,
+    K10_WORK_STATUS_CLEANING_2,
+    K10_WORK_STATUS_CLEANING_3,
+    K10_WORK_STATUS_COLLECTING_DUST,
+    K10_WORK_STATUS_DOCKED,
     K10_WORK_STATUS_GO_CHARGE,
     K10_WORK_STATUS_PAUSED,
     K10_WORK_STATUS_STANDBY,
@@ -44,12 +47,15 @@ _LOGGER = logging.getLogger(__name__)
 
 # K10+ native WorkingStatus values -> HA activity
 K10_STATUS_TO_ACTIVITY = {
-    K10_WORK_STATUS_STANDBY: VacuumActivity.IDLE,       # 0
-    K10_WORK_STATUS_CLEANING: VacuumActivity.CLEANING,  # 1
-    K10_WORK_STATUS_GO_CHARGE: VacuumActivity.RETURNING,# 2
-    K10_WORK_STATUS_CHARGING: VacuumActivity.DOCKED,    # 3
-    K10_WORK_STATUS_PAUSED: VacuumActivity.PAUSED,      # 4
-    K10_WORK_STATUS_CHARGE_DONE: VacuumActivity.DOCKED, # 7
+    K10_WORK_STATUS_STANDBY: VacuumActivity.IDLE,            # 0  fallback
+    K10_WORK_STATUS_CLEANING: VacuumActivity.CLEANING,       # 1  DefaultClean
+    K10_WORK_STATUS_CLEANING_2: VacuumActivity.CLEANING,     # 2  cleaning variant
+    K10_WORK_STATUS_CLEANING_3: VacuumActivity.CLEANING,     # 3  cleaning variant
+    K10_WORK_STATUS_PAUSED: VacuumActivity.PAUSED,           # 4
+    K10_WORK_STATUS_GO_CHARGE: VacuumActivity.RETURNING,     # 5  isGoCharging
+    K10_WORK_STATUS_CHARGING: VacuumActivity.DOCKED,         # 6  isCharging
+    K10_WORK_STATUS_DOCKED: VacuumActivity.DOCKED,           # 7  isDocking
+    K10_WORK_STATUS_COLLECTING_DUST: VacuumActivity.DOCKED,  # 11 isCollectingDust
 }
 
 # S10 native work_status values -> HA activity (confirmed from real API + APK SweeperUtil.smali)
@@ -140,7 +146,6 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
         device_type = coordinator.entry.data.get("device_type", DEVICE_TYPE_S10)
         self._is_k10 = device_type == DEVICE_TYPE_K10
         self._attr_fan_speed_list = K10_FAN_SPEED_LIST if self._is_k10 else FAN_SPEED_LIST
-        self._k10_local_fan_speed: str | None = None  # tracks last-set speed (getInfo is stale)
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, coordinator.device_mac)},
             name=coordinator.device_name or "SwitchBot Vacuum",
@@ -169,14 +174,10 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
     @property
     def fan_speed(self) -> str | None:
         """Return current fan speed."""
+        mode = self.coordinator.data.get("clean_mode", {})
         if self._is_k10:
-            # getInfo returns stale SuctionPowLevel — use locally tracked value if available
-            if self._k10_local_fan_speed is not None:
-                return self._k10_local_fan_speed
-            mode = self.coordinator.data.get("clean_mode", {})
             level = mode.get("fan_level", 0) if isinstance(mode, dict) else 0
             return K10_FAN_LEVEL_TO_SPEED.get(level, "quiet")
-        mode = self.coordinator.data.get("clean_mode", {})
         level = mode.get("fan_level", 1) if isinstance(mode, dict) else 1
         return FAN_LEVEL_TO_SPEED.get(level, "quiet")
 
@@ -261,11 +262,7 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
         """Set fan speed."""
         if self._is_k10:
             level = K10_FAN_SPEEDS.get(fan_speed, 0)
-            await self.coordinator.async_send_action(
-                "SetSuctionPowLevelWithMode", {"Level": level}
-            )
-            self._k10_local_fan_speed = fan_speed
-            self.async_write_ha_state()
+            await self.coordinator.async_send_info({"SuctionPowLevel": level})
         else:
             level = FAN_SPEEDS.get(fan_speed, 1)
             mode = self.coordinator.data.get("clean_mode", {})
