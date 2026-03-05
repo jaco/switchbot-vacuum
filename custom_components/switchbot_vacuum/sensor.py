@@ -123,7 +123,7 @@ class SwitchBotRoomSensor(CoordinatorEntity[SwitchBotS10Coordinator], SensorEnti
         super().__init__(coordinator)
         self._room_id = room_id
         self._attr_unique_id = f"{coordinator.device_mac}_room_{room_id}"
-        self._attr_name = room_name
+        self._attr_name = room_id
         self._attr_icon = "mdi:floor-plan"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, coordinator.device_mac)},
