@@ -1,6 +1,7 @@
 """Vacuum entity for SwitchBot Vacuum."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -199,12 +200,24 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
         attrs["rooms"] = self.coordinator.data.get("rooms", {})
         return attrs
 
+    def _optimistic_update(self, work_status: int) -> None:
+        """Immediately set expected status, then confirm with API after 5s."""
+        new_data = dict(self.coordinator.data)
+        new_data["work_status"] = work_status
+        self.coordinator.async_set_updated_data(new_data)
+        self.hass.async_create_task(self._delayed_refresh())
+
+    async def _delayed_refresh(self) -> None:
+        await asyncio.sleep(5)
+        await self.coordinator.async_request_refresh()
+
     async def async_start(self) -> None:
         """Start cleaning."""
         if self._is_k10:
             await self.coordinator.async_send_action(
                 "StartDefaultClean", {"CleanTimes": 1}
             )
+            self._optimistic_update(K10_WORK_STATUS_CLEANING)
         else:
             mode = self.coordinator.data.get("clean_mode", {})
             if not isinstance(mode, dict):
@@ -221,31 +234,34 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
                     },
                 },
             })
-        await self.coordinator.async_request_refresh()
+            self._optimistic_update(9)  # sweeping
 
     async def async_stop(self, **kwargs: Any) -> None:
         """Stop cleaning."""
         if self._is_k10:
             await self.coordinator.async_send_action("PauseRobot")
+            self._optimistic_update(K10_WORK_STATUS_PAUSED)
         else:
             await self.coordinator.async_send_command(CMD_CONTROL, {"0": "stop"})
-        await self.coordinator.async_request_refresh()
+            self._optimistic_update(11)  # paused
 
     async def async_pause(self) -> None:
         """Pause cleaning."""
         if self._is_k10:
             await self.coordinator.async_send_action("PauseRobot")
+            self._optimistic_update(K10_WORK_STATUS_PAUSED)
         else:
             await self.coordinator.async_send_command(CMD_CONTROL, {"0": "pause"})
-        await self.coordinator.async_request_refresh()
+            self._optimistic_update(11)  # paused
 
     async def async_return_to_base(self, **kwargs: Any) -> None:
         """Return to charging base."""
         if self._is_k10:
             await self.coordinator.async_send_action("ReturnChargeBase")
+            self._optimistic_update(K10_WORK_STATUS_GO_CHARGE)
         else:
             await self.coordinator.async_send_command(CMD_GO_CHARGE, {})
-        await self.coordinator.async_request_refresh()
+            self._optimistic_update(15)  # backing to charge
 
     async def async_set_fan_speed(self, fan_speed: str, **kwargs: Any) -> None:
         """Set fan speed."""
