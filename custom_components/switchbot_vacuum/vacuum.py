@@ -208,7 +208,7 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
         self.hass.async_create_task(self._delayed_refresh())
 
     async def _delayed_refresh(self) -> None:
-        await asyncio.sleep(5)
+        await asyncio.sleep(15)
         await self.coordinator.async_request_refresh()
 
     async def async_start(self) -> None:
