@@ -31,24 +31,50 @@ from .const import (
     K10_FAN_LEVEL_TO_SPEED,
     K10_FAN_SPEED_LIST,
     K10_FAN_SPEEDS,
-    WORK_STATUS_CHARGE_DONE,
-    WORK_STATUS_CHARGING,
-    WORK_STATUS_CLEANING,
-    WORK_STATUS_GO_CHARGE,
-    WORK_STATUS_PAUSED,
-    WORK_STATUS_STANDBY,
+    K10_WORK_STATUS_CHARGE_DONE,
+    K10_WORK_STATUS_CHARGING,
+    K10_WORK_STATUS_CLEANING,
+    K10_WORK_STATUS_GO_CHARGE,
+    K10_WORK_STATUS_PAUSED,
+    K10_WORK_STATUS_STANDBY,
 )
 from .coordinator import SwitchBotS10Coordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-WORK_STATUS_TO_ACTIVITY = {
-    WORK_STATUS_STANDBY: VacuumActivity.IDLE,
-    WORK_STATUS_CHARGING: VacuumActivity.DOCKED,
-    WORK_STATUS_CHARGE_DONE: VacuumActivity.DOCKED,
-    WORK_STATUS_PAUSED: VacuumActivity.PAUSED,
-    WORK_STATUS_GO_CHARGE: VacuumActivity.RETURNING,
-    WORK_STATUS_CLEANING: VacuumActivity.CLEANING,
+# K10+ native WorkingStatus values -> HA activity
+K10_STATUS_TO_ACTIVITY = {
+    K10_WORK_STATUS_STANDBY: VacuumActivity.IDLE,       # 0
+    K10_WORK_STATUS_CLEANING: VacuumActivity.CLEANING,  # 1
+    K10_WORK_STATUS_GO_CHARGE: VacuumActivity.RETURNING,# 2
+    K10_WORK_STATUS_CHARGING: VacuumActivity.DOCKED,    # 3
+    K10_WORK_STATUS_PAUSED: VacuumActivity.PAUSED,      # 4
+    K10_WORK_STATUS_CHARGE_DONE: VacuumActivity.DOCKED, # 7
+}
+
+# S10 native work_status values -> HA activity (confirmed from real API + APK SweeperUtil.smali)
+S10_STATUS_TO_ACTIVITY = {
+    2: VacuumActivity.DOCKED,    # charging ✓
+    3: VacuumActivity.DOCKED,    # charge done
+    4: VacuumActivity.CLEANING,  # launching
+    5: VacuumActivity.CLEANING,  # wetting mop
+    6: VacuumActivity.CLEANING,  # exploring / room mapping
+    7: VacuumActivity.RETURNING, # relocating ✓ (brief during return)
+    8: VacuumActivity.CLEANING,  # sweeping+mopping
+    9: VacuumActivity.CLEANING,  # sweeping ✓
+    10: VacuumActivity.CLEANING, # mopping
+    11: VacuumActivity.PAUSED,   # paused ✓
+    12: VacuumActivity.CLEANING, # escaping trap
+    13: VacuumActivity.ERROR,    # fault
+    14: VacuumActivity.RETURNING,# backing to mop wash station
+    15: VacuumActivity.RETURNING,# backing to charge ✓
+    16: VacuumActivity.DOCKED,   # deeply washing mop
+    17: VacuumActivity.DOCKED,   # collecting sewage
+    18: VacuumActivity.DOCKED,   # filling clean water
+    19: VacuumActivity.RETURNING,# collecting dust at base ✓ (before charging)
+    21: VacuumActivity.IDLE,     # sleeping
+    23: VacuumActivity.CLEANING, # remote control
+    25: VacuumActivity.RETURNING,# backing to dock for shutdown
 }
 
 FAN_LEVEL_TO_SPEED = {v: k for k, v in FAN_SPEEDS.items()}
@@ -124,10 +150,16 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
         )
 
     @property
-    def activity(self) -> VacuumActivity:
+    def activity(self) -> VacuumActivity | None:
         """Return current activity."""
-        status = self.coordinator.data.get("work_status", WORK_STATUS_STANDBY)
-        return WORK_STATUS_TO_ACTIVITY.get(status, VacuumActivity.IDLE)
+        status = self.coordinator.data.get("work_status", 0)
+        if self._is_k10:
+            activity = K10_STATUS_TO_ACTIVITY.get(status)
+        else:
+            activity = S10_STATUS_TO_ACTIVITY.get(status)
+        if activity is None:
+            _LOGGER.debug("Unknown work_status=%s for %s", status, self.coordinator.device_mac)
+        return activity
 
     @property
     def battery_level(self) -> int | None:

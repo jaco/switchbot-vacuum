@@ -29,11 +29,6 @@ from .const import (
     DEVICE_TYPE_K10,
     SUPPORTED_DEVICE_TYPES,
     DOMAIN,
-    K10_WORK_STATUS_CHARGING,
-    K10_WORK_STATUS_CHARGE_DONE,
-    K10_WORK_STATUS_CLEANING,
-    K10_WORK_STATUS_GO_CHARGE,
-    K10_WORK_STATUS_PAUSED,
     K10_WORK_STATUS_STANDBY,
     PROP_AWS_CREDS,
     PROP_BATTERY,
@@ -49,28 +44,12 @@ from .const import (
     S3_REGION,
     TOKEN_REFRESH_SECONDS,
     UPDATE_INTERVAL_SECONDS,
-    WORK_STATUS_CHARGE_DONE,
-    WORK_STATUS_CHARGING,
-    WORK_STATUS_CLEANING,
-    WORK_STATUS_GO_CHARGE,
-    WORK_STATUS_PAUSED,
-    WORK_STATUS_STANDBY,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
 STATUS_PROPS = [PROP_ONLINE, PROP_BATTERY, PROP_WORK_STATUS, PROP_ERROR_CODE,
                 PROP_CLEAN_MODE, PROP_CLEAN_SUMMARY, PROP_FIRMWARE]
-
-# K10+ WorkingStatus -> S10-compatible work_status
-K10_STATUS_MAP = {
-    K10_WORK_STATUS_STANDBY: WORK_STATUS_STANDBY,
-    K10_WORK_STATUS_CLEANING: WORK_STATUS_CLEANING,
-    K10_WORK_STATUS_GO_CHARGE: WORK_STATUS_GO_CHARGE,
-    K10_WORK_STATUS_CHARGING: WORK_STATUS_CHARGING,
-    K10_WORK_STATUS_PAUSED: WORK_STATUS_PAUSED,
-    K10_WORK_STATUS_CHARGE_DONE: WORK_STATUS_CHARGE_DONE,
-}
 
 
 class SwitchBotS10Coordinator(DataUpdateCoordinator):
@@ -401,7 +380,6 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
         info = await self.async_get_k10_info()
 
         raw_status = info.get("WorkingStatus", K10_WORK_STATUS_STANDBY)
-        work_status = K10_STATUS_MAP.get(raw_status, WORK_STATUS_STANDBY)
         online = info.get("online_status") == "online"
         battery = info.get("BatteryLevel", 0)
         fan_level = info.get("SuctionPowLevel", 1)
@@ -412,7 +390,7 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
         return {
             "online": online,
             "battery": battery,
-            "work_status": work_status,
+            "work_status": raw_status,
             "error_code": 0,
             "clean_mode": {"fan_level": fan_level, "type": "sweep", "times": 1, "water_level": 1},
             "clean_summary": {},
