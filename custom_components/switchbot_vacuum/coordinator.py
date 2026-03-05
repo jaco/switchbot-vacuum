@@ -29,11 +29,6 @@ from .const import (
     DEVICE_TYPE_K10,
     SUPPORTED_DEVICE_TYPES,
     DOMAIN,
-    K10_WORK_STATUS_CHARGING,
-    K10_WORK_STATUS_CHARGE_DONE,
-    K10_WORK_STATUS_CLEANING,
-    K10_WORK_STATUS_GO_CHARGE,
-    K10_WORK_STATUS_PAUSED,
     K10_WORK_STATUS_STANDBY,
     PROP_AWS_CREDS,
     PROP_BATTERY,
@@ -49,28 +44,11 @@ from .const import (
     S3_REGION,
     TOKEN_REFRESH_SECONDS,
     UPDATE_INTERVAL_SECONDS,
-    WORK_STATUS_CHARGE_DONE,
-    WORK_STATUS_CHARGING,
-    WORK_STATUS_CLEANING,
-    WORK_STATUS_GO_CHARGE,
-    WORK_STATUS_PAUSED,
-    WORK_STATUS_STANDBY,
 )
-
 _LOGGER = logging.getLogger(__name__)
 
 STATUS_PROPS = [PROP_ONLINE, PROP_BATTERY, PROP_WORK_STATUS, PROP_ERROR_CODE,
                 PROP_CLEAN_MODE, PROP_CLEAN_SUMMARY, PROP_FIRMWARE]
-
-# K10+ WorkingStatus -> S10-compatible work_status
-K10_STATUS_MAP = {
-    K10_WORK_STATUS_STANDBY: WORK_STATUS_STANDBY,
-    K10_WORK_STATUS_CLEANING: WORK_STATUS_CLEANING,
-    K10_WORK_STATUS_GO_CHARGE: WORK_STATUS_GO_CHARGE,
-    K10_WORK_STATUS_CHARGING: WORK_STATUS_CHARGING,
-    K10_WORK_STATUS_PAUSED: WORK_STATUS_PAUSED,
-    K10_WORK_STATUS_CHARGE_DONE: WORK_STATUS_CHARGE_DONE,
-}
 
 
 class SwitchBotS10Coordinator(DataUpdateCoordinator):
@@ -244,23 +222,38 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
             ) as resp:
                 return await resp.json()
 
-    async def async_get_k10_info(self) -> dict[str, Any]:
-        """Fetch K10+ device info from getInfo endpoint."""
+    async def async_send_info(self, items: dict[str, Any]) -> dict[str, Any]:
+        """Set K10+ device properties via setInfo endpoint."""
         product_key = await self._get_product_key()
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                f"{API_HOST_EU}/wonder/sweeper360/v1/device/getInfo",
+                f"{API_HOST_EU}/wonder/sweeper360/v1/device/setInfo",
                 headers=self._headers(),
                 json={
                     "productKey": product_key,
                     "deviceName": self.device_mac,
+                    "items": items,
                 },
+                timeout=aiohttp.ClientTimeout(total=API_TIMEOUT),
+            ) as resp:
+                return await resp.json()
+
+    async def async_get_k10_status(self) -> dict[str, Any]:
+        """Fetch real-time K10+ status via getstatus endpoint."""
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{API_HOST_EU}/wonder/devicestatus/v1/getstatus",
+                headers=self._headers(),
+                json={"items": [self.device_mac]},
                 timeout=aiohttp.ClientTimeout(total=API_TIMEOUT),
             ) as resp:
                 data = await resp.json()
                 if data.get("statusCode") != 100:
-                    raise UpdateFailed(f"K10+ getInfo failed: {data}")
-                return data.get("body", {})
+                    raise UpdateFailed(f"K10+ getstatus failed: {data}")
+                items = data.get("body", {}).get("items", [])
+                if not items:
+                    raise UpdateFailed("K10+ getstatus returned no items")
+                return items[0]
 
     async def async_refresh_k10_rooms(self) -> None:
         """Fetch K10+ room IDs from GetCleanPolicyList and build room map."""
@@ -397,24 +390,23 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
             await self.async_login()
 
     async def _async_update_data_k10(self) -> dict[str, Any]:
-        """Fetch status data from K10+ via getInfo."""
-        info = await self.async_get_k10_info()
-
-        raw_status = info.get("WorkingStatus", K10_WORK_STATUS_STANDBY)
-        work_status = K10_STATUS_MAP.get(raw_status, WORK_STATUS_STANDBY)
-        online = info.get("online_status") == "online"
-        battery = info.get("BatteryLevel", 0)
-        fan_level = info.get("SuctionPowLevel", 1)
+        """Fetch real-time status data from K10+ via getstatus."""
+        status = await self.async_get_k10_status()
 
         if time.time() - self._last_room_refresh > 86400:
             self.hass.async_create_task(self._background_room_refresh())
 
         return {
-            "online": online,
-            "battery": battery,
-            "work_status": work_status,
+            "online": status.get("online_status") == "online",
+            "battery": status.get("BatteryLevel", 0),
+            "work_status": status.get("WorkingStatus", K10_WORK_STATUS_STANDBY),
             "error_code": 0,
-            "clean_mode": {"fan_level": fan_level, "type": "sweep", "times": 1, "water_level": 1},
+            "clean_mode": {
+                "fan_level": status.get("SuctionPowLevel", 1),
+                "type": "sweep",
+                "times": 1,
+                "water_level": 1,
+            },
             "clean_summary": {},
             "firmware": "",
             "rooms": self._rooms,

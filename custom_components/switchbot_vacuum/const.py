@@ -24,17 +24,26 @@ DEVICE_TYPE_TO_MODEL: Final = {
     DEVICE_TYPE_K10: "Mini Robot Vacuum K10+",
 }
 
-# K10+ WorkingStatus values
-K10_WORK_STATUS_STANDBY: Final = 0
+# K10+ WorkingStatus values (verified from APK VacuumUtil.smali)
+# isCleaning  → [1, 2, 3]
+# isPaused    → [4]
+# isGoCharging→ [5]
+# isCharging  → [6]  (also isDocking)
+# isDocking   → [6, 7, 11]
+# isCollecting→ [11]
 K10_WORK_STATUS_CLEANING: Final = 1
-K10_WORK_STATUS_GO_CHARGE: Final = 2
-K10_WORK_STATUS_CHARGING: Final = 3
+K10_WORK_STATUS_CLEANING_2: Final = 2
+K10_WORK_STATUS_CLEANING_3: Final = 3
 K10_WORK_STATUS_PAUSED: Final = 4
-K10_WORK_STATUS_CHARGE_DONE: Final = 7
+K10_WORK_STATUS_GO_CHARGE: Final = 5
+K10_WORK_STATUS_CHARGING: Final = 6
+K10_WORK_STATUS_DOCKED: Final = 7
+K10_WORK_STATUS_COLLECTING_DUST: Final = 11
+K10_WORK_STATUS_STANDBY: Final = 0  # fallback
 
 # Commands
 CMD_CLEAN: Final = 1001
-CMD_GO_CHARGE: Final = 1008
+CMD_GO_CHARGE: Final = 1022
 CMD_CONTROL: Final = 1009
 CMD_CHANGE_MODE: Final = 1043
 
@@ -44,7 +53,12 @@ WORK_STATUS_CHARGING: Final = 2
 WORK_STATUS_CHARGE_DONE: Final = 3
 WORK_STATUS_PAUSED: Final = 4
 WORK_STATUS_GO_CHARGE: Final = 5
+WORK_STATUS_RETURNING: Final = 7
 WORK_STATUS_CLEANING: Final = 8
+WORK_STATUS_CLEANING_ROOMS: Final = 9
+WORK_STATUS_PAUSED_2: Final = 11
+WORK_STATUS_GO_CHARGE_2: Final = 15
+WORK_STATUS_DOCKING: Final = 19
 
 # Properties
 PROP_ONLINE: Final = 1003
@@ -61,7 +75,7 @@ PROP_CLEAN_SUMMARY: Final = 1052
 PROP_AWS_CREDS: Final = 1130
 PROP_FIRMWARE: Final = 1002
 
-# Fan speed mapping
+# Fan speed mapping (S10)
 FAN_SPEEDS: Final = {
     "quiet": 1,
     "standard": 2,
@@ -69,6 +83,16 @@ FAN_SPEEDS: Final = {
     "max": 4,
 }
 FAN_SPEED_LIST: Final = list(FAN_SPEEDS.keys())
+
+# Fan speed mapping (K10+) — SuctionPowLevel 0-3 (confirmed via app: quiet/standard/strong/max)
+K10_FAN_SPEEDS: Final = {
+    "quiet": 0,
+    "standard": 1,
+    "strong": 2,
+    "max": 3,
+}
+K10_FAN_SPEED_LIST: Final = list(K10_FAN_SPEEDS.keys())
+K10_FAN_LEVEL_TO_SPEED: Final = {v: k for k, v in K10_FAN_SPEEDS.items()}
 
 # Clean types
 CLEAN_TYPE_SWEEP: Final = "sweep"
