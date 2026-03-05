@@ -1,7 +1,6 @@
 """Vacuum entity for SwitchBot Vacuum."""
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any
 
@@ -201,15 +200,10 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
         return attrs
 
     def _optimistic_update(self, work_status: int) -> None:
-        """Immediately set expected status, then confirm with API after 5s."""
+        """Immediately set expected status optimistically."""
         new_data = dict(self.coordinator.data)
         new_data["work_status"] = work_status
         self.coordinator.async_set_updated_data(new_data)
-        self.hass.async_create_task(self._delayed_refresh())
-
-    async def _delayed_refresh(self) -> None:
-        await asyncio.sleep(15)
-        await self.coordinator.async_request_refresh()
 
     async def async_start(self) -> None:
         """Start cleaning."""
