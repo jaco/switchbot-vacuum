@@ -188,7 +188,7 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
                 timeout=aiohttp.ClientTimeout(total=API_TIMEOUT),
             ) as resp:
                 result = await resp.json()
-                _LOGGER.debug(
+                _LOGGER.warning(
                     "invokeFunc functionID=%s result: %s", function_id, result
                 )
                 return result
