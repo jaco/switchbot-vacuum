@@ -11,7 +11,6 @@ CONF_PRODUCT_KEY: Final = "product_key"
 
 # API
 API_AUTH_HOST: Final = "https://account.api.switchbot.net"
-API_HOST_EU: Final = "https://wonderlabs.eu.api.switchbot.net"
 CLIENT_ID: Final = "5nnwmhmsa9xxskm14hd85lm9bm"
 APP_VERSION: Final = "8.6.1"
 API_TIMEOUT: Final = 30
