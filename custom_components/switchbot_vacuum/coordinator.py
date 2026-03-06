@@ -18,7 +18,6 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .const import (
     API_AUTH_HOST,
-    API_HOST_EU,
     API_TIMEOUT,
     APP_VERSION,
     CLIENT_ID,
@@ -58,6 +57,8 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
         """Initialize."""
         self.entry = entry
         self.access_token: str | None = None
+        self.bot_region: str | None = None
+        self.wonderlab_endpoint: str | None = None
         self.device_mac: str | None = None
         self.device_name: str | None = None
         self.user_id: str | None = None
@@ -117,12 +118,41 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
                     )
                 self.access_token = token
                 self._token_expiry = time.time() + TOKEN_REFRESH_SECONDS
+            async with session.post(
+                f"{API_AUTH_HOST}/account/api/v1/user/userinfo",
+                headers=self._headers(),
+                timeout=aiohttp.ClientTimeout(total=API_TIMEOUT),
+            ) as resp:
+                data = await resp.json()
+                body = data.get("body", {})
+                self.bot_region = body.get("botRegion")
+                if not self.bot_region:
+                    raise ConfigEntryAuthFailed(
+                        f"Get UserInfo failed: {data.get('message', data.get('statusCode', 'unknown'))}"
+                    )
+            async with session.post(
+                f"{API_AUTH_HOST}/admin/admin/api/v1/botregion/endpoint",
+                headers=self._headers(),
+                json={
+                    "botRegion": self.bot_region,
+                },
+                timeout=aiohttp.ClientTimeout(total=API_TIMEOUT),
+            ) as resp:
+                data = await resp.json()
+                body = data.get("data", [])
+                self.wonderlab_endpoint = next(
+                    (v["host"] for v in body if v["name"] == "wonderlabs"), None
+                )
+                if not self.wonderlab_endpoint:
+                    raise ConfigEntryAuthFailed(
+                        f"Get Endpoints failed: {data.get('message', data.get('resultCode', 'unknown'))}"
+                    )
 
     async def async_discover_devices(self) -> list[dict[str, Any]]:
         """Find all supported vacuum devices in the account."""
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                f"{API_HOST_EU}/wonder/device/v3/getdevice",
+                f"{self.wonderlab_endpoint}/wonder/device/v3/getdevice",
                 headers=self._headers(),
                 json={"required_type": "All"},
                 timeout=aiohttp.ClientTimeout(total=API_TIMEOUT),
@@ -152,7 +182,7 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
         """Fetch device properties from shadow API (S10 only)."""
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                f"{API_HOST_EU}/device/device/v1/shadow/getByIDs",
+                f"{self.wonderlab_endpoint}/device/device/v1/shadow/getByIDs",
                 headers=self._headers(),
                 json={"deviceID": self.device_mac, "propertyIDs": property_ids},
                 timeout=aiohttp.ClientTimeout(total=API_TIMEOUT),
@@ -171,7 +201,7 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
         """Send a command to the device via invokeFunc (S10 only)."""
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                f"{API_HOST_EU}/command/cmd/api/v1/func/invoke",
+                f"{self.wonderlab_endpoint}/command/cmd/api/v1/func/invoke",
                 headers=self._headers(),
                 json={
                     "deviceID": self.device_mac,
@@ -210,7 +240,7 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
         product_key = await self._get_product_key()
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                f"{API_HOST_EU}/wonder/sweeper360/v1/device/setAction",
+                f"{self.wonderlab_endpoint}/wonder/sweeper360/v1/device/setAction",
                 headers=self._headers(),
                 json={
                     "productKey": product_key,
@@ -227,7 +257,7 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
         product_key = await self._get_product_key()
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                f"{API_HOST_EU}/wonder/sweeper360/v1/device/setInfo",
+                f"{self.wonderlab_endpoint}/wonder/sweeper360/v1/device/setInfo",
                 headers=self._headers(),
                 json={
                     "productKey": product_key,
@@ -242,7 +272,7 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
         """Fetch real-time K10+ status via getstatus endpoint."""
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                f"{API_HOST_EU}/wonder/devicestatus/v1/getstatus",
+                f"{self.wonderlab_endpoint}/wonder/devicestatus/v1/getstatus",
                 headers=self._headers(),
                 json={"items": [self.device_mac]},
                 timeout=aiohttp.ClientTimeout(total=API_TIMEOUT),
