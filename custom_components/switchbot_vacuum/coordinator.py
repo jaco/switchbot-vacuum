@@ -26,6 +26,7 @@ from .const import (
     CONF_PRODUCT_KEY,
     CONF_USERNAME,
     DEVICE_TYPE_K10,
+    DEVICE_TYPE_K10PRO,
     SUPPORTED_DEVICE_TYPES,
     DOMAIN,
     K10_WORK_STATUS_STANDBY,
@@ -40,6 +41,14 @@ from .const import (
     PROP_ROOM_PLANS,
     PROP_S3_BUCKET,
     PROP_WORK_STATUS,
+    K10PRO_PROP_ONLINE,
+    K10PRO_PROP_BATTERY,
+    K10PRO_PROP_SUCTION_POW_LEVEL,
+    K10PRO_PROP_WORK_STATUS,
+    K10PRO_PROP_DUST_COLECT_FREQUENCY,
+    K10PRO_PROP_CHILD_LOCK,
+    K10PRO_PROP_DUST_COLECT_TIME,
+    K10PRO_PROP_AUTO_RESTART,
     S3_REGION,
     TOKEN_REFRESH_SECONDS,
     UPDATE_INTERVAL_SECONDS,
@@ -48,6 +57,16 @@ _LOGGER = logging.getLogger(__name__)
 
 STATUS_PROPS = [PROP_ONLINE, PROP_BATTERY, PROP_WORK_STATUS, PROP_ERROR_CODE,
                 PROP_CLEAN_MODE, PROP_CLEAN_SUMMARY, PROP_FIRMWARE]
+K10PRO_STATUS_PROPS = [
+    K10PRO_PROP_ONLINE,
+    K10PRO_PROP_BATTERY,
+    K10PRO_PROP_SUCTION_POW_LEVEL,
+    K10PRO_PROP_WORK_STATUS,
+    K10PRO_PROP_DUST_COLECT_FREQUENCY,
+    K10PRO_PROP_CHILD_LOCK,
+    K10PRO_PROP_DUST_COLECT_TIME,
+    K10PRO_PROP_AUTO_RESTART,
+]
 
 
 class SwitchBotS10Coordinator(DataUpdateCoordinator):
@@ -78,6 +97,10 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
     def _is_k10(self) -> bool:
         """Return True if device is K10+."""
         return self.entry.data.get("device_type") == DEVICE_TYPE_K10
+
+    def _is_k10_pro(self) -> bool:
+        """Return True if device is K10+."""
+        return self.entry.data.get("device_type") == DEVICE_TYPE_K10PRO
 
     def _headers(self, auth: str | None = None) -> dict[str, str]:
         """Build common request headers."""
@@ -327,7 +350,7 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
 
     async def async_refresh_rooms(self) -> None:
         """Refresh rooms — branches per device type."""
-        if self._is_k10():
+        if self._is_k10() or self._is_k10_pro():
             await self.async_refresh_k10_rooms()
             return
 
@@ -442,6 +465,30 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
             "rooms": self._rooms,
         }
 
+    async def _async_update_data_k10_pro(self) -> dict[str, Any]:
+        """Fetch real-time status data from K10+ Pro via getstatus."""
+
+        if time.time() - self._last_room_refresh > 86400:
+            self.hass.async_create_task(self._background_room_refresh())
+
+        props = await self.async_get_properties(K10PRO_STATUS_PROPS)
+
+        return {
+            "online": props.get(K10PRO_PROP_ONLINE, 1) == 1,
+            "battery": props.get(K10PRO_PROP_BATTERY, 0),
+            "work_status": props.get(K10PRO_PROP_WORK_STATUS, 0),
+            "error_code": 0,
+            "clean_mode": {
+                "fan_level": props.get(K10PRO_PROP_SUCTION_POW_LEVEL, 1),
+                "type": "sweep",
+                "times": 1,
+                "water_level": 1,
+            },
+            "clean_summary": {},
+            "firmware": "",
+            "rooms": self._rooms,
+        }
+
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch status data from device."""
         await self._ensure_token()
@@ -451,6 +498,9 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
 
         if self._is_k10():
             return await self._async_update_data_k10()
+
+        if self._is_k10_pro():
+            return await self._async_update_data_k10_pro()
 
         props = await self.async_get_properties(STATUS_PROPS)
 

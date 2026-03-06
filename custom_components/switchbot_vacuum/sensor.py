@@ -17,7 +17,7 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DEVICE_TYPE_K10, DOMAIN
+from .const import DEVICE_TYPE_K10, DEVICE_TYPE_K10PRO, DOMAIN
 from .coordinator import SwitchBotS10Coordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -81,7 +81,7 @@ async def async_setup_entry(
 
     entities: list[SensorEntity] = []
 
-    if device_type != DEVICE_TYPE_K10:
+    if device_type not in (DEVICE_TYPE_K10, DEVICE_TYPE_K10PRO):
         entities.extend(
             SwitchBotCleanSummarySensor(coordinator, desc)
             for desc in CLEAN_SUMMARY_SENSORS
