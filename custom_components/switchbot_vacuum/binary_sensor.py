@@ -11,7 +11,7 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, ERROR_CODES, WORK_STATUS_FAULT
+from .const import DOMAIN, ERROR_CODES, NON_ERROR_STATUS_CODES, WORK_STATUS_FAULT
 from .coordinator import SwitchBotS10Coordinator
 
 
@@ -46,7 +46,7 @@ class SwitchBotVacuumProblem(
         """Return True if there is an active error."""
         error_code = self.coordinator.data.get("error_code", 0)
         work_status = self.coordinator.data.get("work_status", 0)
-        return error_code != 0 or work_status == WORK_STATUS_FAULT
+        return error_code not in NON_ERROR_STATUS_CODES or work_status == WORK_STATUS_FAULT
 
     @property
     def extra_state_attributes(self) -> dict[str, str | int]:

@@ -202,6 +202,7 @@ class SwitchBotVacuumError(CoordinatorEntity[SwitchBotS10Coordinator], SensorEnt
             "error_description": ERROR_CODES.get(
                 error_code, f"Unknown error {error_code}"
             ),
+            "work_status": self.coordinator.data.get("work_status", 0),
         }
 
 

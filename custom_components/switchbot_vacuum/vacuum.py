@@ -78,6 +78,7 @@ S10_STATUS_TO_ACTIVITY = {
     17: VacuumActivity.DOCKED,   # collecting sewage
     18: VacuumActivity.DOCKED,   # filling clean water
     19: VacuumActivity.RETURNING,# collecting dust at base ✓ (before charging)
+    20: VacuumActivity.DOCKED,   # drying mop ✓
     21: VacuumActivity.IDLE,     # sleeping
     23: VacuumActivity.CLEANING, # remote control
     25: VacuumActivity.RETURNING,# backing to dock for shutdown
@@ -198,6 +199,7 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
             attrs["last_clean_area"] = summary.get("clean_area", 0)
             attrs["last_clean_time"] = summary.get("clean_time", 0)
 
+        attrs["work_status"] = self.coordinator.data.get("work_status", 0)
         attrs["rooms"] = self.coordinator.data.get("rooms", {})
         return attrs
 
