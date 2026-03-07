@@ -9,6 +9,7 @@ SwitchBot does not provide a public API for their robot vacuums. The official Sw
 ## Features
 
 - **Vacuum entity** with full state reporting (cleaning, docked, paused, returning, idle)
+- **Error detection** — error sensor with specific error types (stuck, water tank empty, brush tangled, etc.) and a problem binary sensor for easy automations
 - **Room sensor entities** — one per room discovered from the vacuum's map
 - **Room-aware cleaning** — clean specific rooms by name or ID, with full control over mode, suction, water level, passes, and order
 - **Automatic room discovery** — room names are downloaded from the vacuum's S3 map data every 24 hours
@@ -90,6 +91,39 @@ The vacuum entity exposes additional attributes you can use in automations and t
 {% endfor %}
 ```
 
+### Error & problem detection
+
+| Entity | Type | Description |
+|--------|------|-------------|
+| `binary_sensor.*.problem` | Problem | ON when any error is active — simplest automation trigger |
+| `sensor.*.error` | Sensor | Current error type as a string (e.g. `stuck`, `clean_water_tank_empty`) or `none` |
+
+The error sensor state is one of:
+
+| State | Error code | Description |
+|-------|-----------|-------------|
+| `none` | 0 | No error |
+| `stuck` | 2000 | Robot is stuck |
+| `wheel_stuck` | 2001 | Wheel stuck or suspended |
+| `side_brush_stuck` | 2002 | Side brush tangled |
+| `main_brush_stuck` | 2003 | Main brush/roller tangled |
+| `bumper_stuck` | 2004 | Bumper stuck — check for debris |
+| `dust_bin_missing` | 2005 | Dust bin not installed |
+| `filter_clogged` | 2006 | Filter needs cleaning |
+| `cliff_sensor_error` | 2007 | Cliff/drop sensor error |
+| `low_battery` | 2008 | Battery too low to continue |
+| `charging_error` | 2009 | Cannot charge — check dock contacts |
+| `internal_error` | 2010 | Internal system error |
+| `laser_sensor_error` | 2011 | LDS/laser sensor error |
+| `path_blocked` | 2012 | Navigation error — cannot find path |
+| `clean_water_tank_empty` | 2728 | Clean water tank empty |
+| `dirty_water_tank_full` | 2739 | Dirty water tank full |
+| `dirty_water_tank_removed` | 2740 | Dirty water tank removed |
+| `fault` | — | Work status is fault but no specific error code |
+| `error_XXXX` | XXXX | Unknown code (logged as warning for discovery) |
+
+Both entities expose `error_code` (raw integer) and `error_type`/`error_description` as extra attributes.
+
 ### Room sensors
 
 Each room discovered from the vacuum's map gets a sensor entity (e.g. `sensor.kitchen`, `sensor.bedroom`). The sensor value is the room name, and the `room_id` attribute contains the internal ID (e.g. `ROOM_013`).
@@ -161,6 +195,40 @@ automation:
           water_level: 2
 ```
 
+### Notify when water tank is empty
+
+```yaml
+automation:
+  - alias: "S10 water tank empty"
+    trigger:
+      - platform: state
+        entity_id: sensor.floor_cleaning_robot_s10_error
+        to: "clean_water_tank_empty"
+    action:
+      - service: notify.mobile_app
+        data:
+          title: "SwitchBot S10"
+          message: "Clean water tank is empty — refill to continue cleaning"
+```
+
+### Notify on any problem
+
+```yaml
+automation:
+  - alias: "S10 any problem"
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.floor_cleaning_robot_s10_problem
+        to: "on"
+    action:
+      - service: notify.mobile_app
+        data:
+          title: "SwitchBot S10 problem"
+          message: >
+            Error: {{ state_attr('sensor.floor_cleaning_robot_s10_error', 'error_description') }}
+            (code {{ state_attr('sensor.floor_cleaning_robot_s10_error', 'error_code') }})
+```
+
 ### Full clean when everyone leaves
 
 ```yaml
@@ -207,8 +275,9 @@ The `switchbot_vacuum.clean_rooms` service will **not appear** for K10+ devices.
 
 - The integration polls the device every 30 seconds
 - Auth tokens are refreshed automatically every 1.5 hours
-- Room names are refreshed from S3 map data every 24 hours (or on demand via `force_refresh`)
-- If AWS credentials for S3 are expired, the integration sends a wake command to the robot and retries after 15 seconds
+- Room names are refreshed from S3 map data every 24 hours (or on demand via `force_refresh`); room refresh runs as a background task so it never blocks setup
+- Error codes are read from device property 1019 and mapped to descriptive strings; unknown codes are logged as warnings so they can be reported and added
+- Error code mappings were reverse-engineered from the SwitchBot APK's Flutter module (`feature_sweeper`, Qihoo 360 SDK)
 
 ## License
 
