@@ -106,6 +106,8 @@ WORK_STATUS_FAULT: Final = 13
 # Codes with known descriptions from APK string analysis; unknown codes logged for discovery.
 ERROR_CODES: Final[dict[int, str]] = {
     0: "none",
+    # Low codes — operational status indicators, NOT actual errors
+    11: "drying_mop",                 # Base station drying mop (normal operation)
     # sweeperErrorEnd_2000 – 2012: Qihoo 360 SDK error codes
     2000: "stuck",                      # Robot is stuck
     2001: "wheel_stuck",                # Wheel stuck or suspended
@@ -125,6 +127,10 @@ ERROR_CODES: Final[dict[int, str]] = {
     2739: "dirty_water_tank_full",      # Dirty water tank full
     2740: "dirty_water_tank_removed",   # Dirty water tank removed
 }
+
+# Status codes in PROP_ERROR_CODE that are NOT actual errors (normal operation).
+# Only codes NOT in this set should trigger the problem binary sensor.
+NON_ERROR_STATUS_CODES: Final = frozenset({0, 11})
 
 # Separate operational failure reasons (from APK operateFail* strings)
 # These appear as transient conditions checked before/during commands.
