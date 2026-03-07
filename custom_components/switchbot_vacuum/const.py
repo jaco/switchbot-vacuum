@@ -11,17 +11,18 @@ CONF_PRODUCT_KEY: Final = "product_key"
 
 # API
 API_AUTH_HOST: Final = "https://account.api.switchbot.net"
-API_HOST_EU: Final = "https://wonderlabs.eu.api.switchbot.net"
 CLIENT_ID: Final = "5nnwmhmsa9xxskm14hd85lm9bm"
 APP_VERSION: Final = "8.6.1"
 API_TIMEOUT: Final = 30
 DEVICE_TYPE_S10: Final = "WoSweeperOrigin"
 DEVICE_TYPE_K10: Final = "WoSweeperMini"
-SUPPORTED_DEVICE_TYPES: Final = {DEVICE_TYPE_S10, DEVICE_TYPE_K10}
+DEVICE_TYPE_K10PRO: Final = "WoSweeperMiniPro"
+SUPPORTED_DEVICE_TYPES: Final = {DEVICE_TYPE_S10, DEVICE_TYPE_K10, DEVICE_TYPE_K10PRO}
 
 DEVICE_TYPE_TO_MODEL: Final = {
     DEVICE_TYPE_S10: "Floor Cleaning Robot S10",
     DEVICE_TYPE_K10: "Mini Robot Vacuum K10+",
+    DEVICE_TYPE_K10PRO: "Mini Robot Vacuum K10+ Pro",
 }
 
 # K10+ WorkingStatus values (verified from APK VacuumUtil.smali)
@@ -74,6 +75,15 @@ PROP_CLEAN_MODE: Final = 1053
 PROP_CLEAN_SUMMARY: Final = 1052
 PROP_AWS_CREDS: Final = 1130
 PROP_FIRMWARE: Final = 1002
+
+K10PRO_PROP_ONLINE: Final = 66
+K10PRO_PROP_BATTERY: Final = 820
+K10PRO_PROP_SUCTION_POW_LEVEL: Final = 4601
+K10PRO_PROP_WORK_STATUS: Final = 4602
+K10PRO_PROP_DUST_COLECT_FREQUENCY: Final = 4609
+K10PRO_PROP_CHILD_LOCK: Final = 4610
+K10PRO_PROP_DUST_COLECT_TIME: Final = 4614
+K10PRO_PROP_AUTO_RESTART: Final = 4615
 
 # Fan speed mapping (S10)
 FAN_SPEEDS: Final = {

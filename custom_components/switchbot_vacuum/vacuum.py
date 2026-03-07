@@ -23,6 +23,7 @@ from .const import (
     CMD_CONTROL,
     CMD_GO_CHARGE,
     DEVICE_TYPE_K10,
+    DEVICE_TYPE_K10PRO,
     DEVICE_TYPE_S10,
     DEVICE_TYPE_TO_MODEL,
     DOMAIN,
@@ -147,6 +148,7 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
         device_type = coordinator.entry.data.get("device_type", DEVICE_TYPE_S10)
         self._is_k10 = device_type == DEVICE_TYPE_K10
         self._attr_fan_speed_list = K10_FAN_SPEED_LIST if self._is_k10 else FAN_SPEED_LIST
+        self._is_k10_pro = device_type == DEVICE_TYPE_K10PRO
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, coordinator.device_mac)},
             name=coordinator.device_name or "SwitchBot Vacuum",
@@ -159,7 +161,7 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
     def activity(self) -> VacuumActivity | None:
         """Return current activity."""
         status = self.coordinator.data.get("work_status", 0)
-        if self._is_k10:
+        if self._is_k10 or self._is_k10_pro:
             activity = K10_STATUS_TO_ACTIVITY.get(status)
         else:
             activity = S10_STATUS_TO_ACTIVITY.get(status)
@@ -176,7 +178,7 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
     def fan_speed(self) -> str | None:
         """Return current fan speed."""
         mode = self.coordinator.data.get("clean_mode", {})
-        if self._is_k10:
+        if self._is_k10 or self._is_k10_pro:
             level = mode.get("fan_level", 0) if isinstance(mode, dict) else 0
             return K10_FAN_LEVEL_TO_SPEED.get(level, "quiet")
         level = mode.get("fan_level", 1) if isinstance(mode, dict) else 1
@@ -191,11 +193,11 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
 
         if isinstance(mode, dict):
             attrs["times"] = mode.get("times", 1)
-        if not self._is_k10 and isinstance(mode, dict):
+        if not self._is_k10 and not self._is_k10_pro and isinstance(mode, dict):
             attrs["water_level"] = mode.get("water_level", 1)
             attrs["clean_type"] = mode.get("type", "sweep_mop")
 
-        if not self._is_k10 and isinstance(summary, dict):
+        if not self._is_k10 and not self._is_k10_pro and isinstance(summary, dict):
             attrs["last_clean_area"] = summary.get("clean_area", 0)
             attrs["last_clean_time"] = summary.get("clean_time", 0)
 
@@ -211,7 +213,7 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
 
     async def async_start(self) -> None:
         """Start cleaning."""
-        if self._is_k10:
+        if self._is_k10 or self._is_k10_pro:
             await self.coordinator.async_send_action(
                 "StartDefaultClean", {"CleanTimes": 1}
             )
@@ -245,7 +247,7 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
 
     async def async_pause(self) -> None:
         """Pause cleaning."""
-        if self._is_k10:
+        if self._is_k10 or self._is_k10_pro:
             await self.coordinator.async_send_action("PauseRobot")
             self._optimistic_update(K10_WORK_STATUS_PAUSED)
         else:
@@ -254,7 +256,7 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
 
     async def async_return_to_base(self, **kwargs: Any) -> None:
         """Return to charging base."""
-        if self._is_k10:
+        if self._is_k10 or self._is_k10_pro:
             await self.coordinator.async_send_action("ReturnChargeBase")
             self._optimistic_update(K10_WORK_STATUS_GO_CHARGE)
         else:
@@ -263,7 +265,7 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
 
     async def async_set_fan_speed(self, fan_speed: str, **kwargs: Any) -> None:
         """Set fan speed."""
-        if self._is_k10:
+        if self._is_k10 or self._is_k10_pro:
             level = K10_FAN_SPEEDS.get(fan_speed, 0)
             await self.coordinator.async_send_info({"SuctionPowLevel": level})
         else:
@@ -313,7 +315,7 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
                 _LOGGER.warning("Unknown room: %s", room)
                 resolved.append(room)
 
-        if self._is_k10:
+        if self._is_k10 or self._is_k10_pro:
             _LOGGER.warning(
                 "K10+ does not support room-specific cleaning via cloud API "
                 "(uses local Qihoo SDK in the official app). Starting whole-house clean."
