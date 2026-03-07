@@ -238,7 +238,7 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
 
     async def async_stop(self, **kwargs: Any) -> None:
         """Stop cleaning."""
-        if self._is_k10:
+        if self._is_k10 or self._is_k10_pro:
             await self.coordinator.async_send_action("PauseRobot")
             self._optimistic_update(K10_WORK_STATUS_PAUSED)
         else:
