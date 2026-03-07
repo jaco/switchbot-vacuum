@@ -1,7 +1,7 @@
 {
   "domain": "switchbot_vacuum",
   "name": "SwitchBot Vacuum",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "documentation": "https://github.com/jaco/switchbot-vacuum",
   "issue_tracker": "https://github.com/jaco/switchbot-vacuum/issues",
   "codeowners": ["@jaczewski"],
