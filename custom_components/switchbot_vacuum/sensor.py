@@ -17,7 +17,7 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DEVICE_TYPE_K10, DEVICE_TYPE_K10PRO, DOMAIN
+from .const import DEVICE_TYPE_K10, DEVICE_TYPE_K10PRO, DOMAIN, ERROR_CODES, WORK_STATUS_FAULT
 from .coordinator import SwitchBotS10Coordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -79,7 +79,7 @@ async def async_setup_entry(
     coordinator: SwitchBotS10Coordinator = hass.data[DOMAIN][entry.entry_id]
     device_type = entry.data.get("device_type", "")
 
-    entities: list[SensorEntity] = []
+    entities: list[SensorEntity] = [SwitchBotVacuumError(coordinator)]
 
     if device_type not in (DEVICE_TYPE_K10, DEVICE_TYPE_K10PRO):
         entities.extend(
@@ -87,8 +87,7 @@ async def async_setup_entry(
             for desc in CLEAN_SUMMARY_SENSORS
         )
 
-    if entities:
-        async_add_entities(entities)
+    async_add_entities(entities)
 
     known_room_ids: set[str] = set()
 
@@ -169,3 +168,49 @@ class SwitchBotCleanSummarySensor(CoordinatorEntity[SwitchBotS10Coordinator], Se
         if raw is None:
             return None
         return round(raw * self.entity_description.scale, 1)
+
+
+class SwitchBotVacuumError(CoordinatorEntity[SwitchBotS10Coordinator], SensorEntity):
+    """Sensor showing current error type as state for automations."""
+
+    _attr_icon = "mdi:alert-circle-outline"
+
+    def __init__(self, coordinator: SwitchBotS10Coordinator) -> None:
+        """Initialize."""
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.device_mac}_error"
+        self._attr_name = "Error"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, coordinator.device_mac)},
+        )
+
+    @property
+    def native_value(self) -> str:
+        """Return error type string for automation triggers."""
+        error_code = self.coordinator.data.get("error_code", 0)
+        work_status = self.coordinator.data.get("work_status", 0)
+        if error_code == 0 and work_status == WORK_STATUS_FAULT:
+            return "fault"
+        return _resolve_error(error_code)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, str | int]:
+        """Return raw error code for advanced automations."""
+        error_code = self.coordinator.data.get("error_code", 0)
+        return {
+            "error_code": error_code,
+            "error_description": ERROR_CODES.get(
+                error_code, f"Unknown error {error_code}"
+            ),
+        }
+
+
+def _resolve_error(error_code: int) -> str:
+    """Map error code to string, logging unknown codes."""
+    if error_code in ERROR_CODES:
+        return ERROR_CODES[error_code]
+    _LOGGER.warning(
+        "Unknown SwitchBot vacuum error code %d — please report this",
+        error_code,
+    )
+    return f"error_{error_code}"

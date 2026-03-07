@@ -109,6 +109,46 @@ CLEAN_TYPE_SWEEP: Final = "sweep"
 CLEAN_TYPE_MOP: Final = "mop"
 CLEAN_TYPE_SWEEP_MOP: Final = "sweep_mop"
 
+# Work status indicating fault (S10)
+WORK_STATUS_FAULT: Final = 13
+
+# Error codes (property 1019) — from APK feature_sweeper (sweeperErrorEnd_XXXX)
+# Codes with known descriptions from APK string analysis; unknown codes logged for discovery.
+ERROR_CODES: Final[dict[int, str]] = {
+    0: "none",
+    # sweeperErrorEnd_2000 – 2012: Qihoo 360 SDK error codes
+    2000: "stuck",                      # Robot is stuck
+    2001: "wheel_stuck",                # Wheel stuck or suspended
+    2002: "side_brush_stuck",           # Side brush tangled/stuck
+    2003: "main_brush_stuck",           # Main brush/roller tangled/stuck
+    2004: "bumper_stuck",               # Bumper stuck — check for debris
+    2005: "dust_bin_missing",           # Dust bin not installed
+    2006: "filter_clogged",             # Filter needs cleaning
+    2007: "cliff_sensor_error",         # Cliff/drop sensor error
+    2008: "low_battery",               # Battery too low to continue
+    2009: "charging_error",             # Cannot charge — check dock contacts
+    2010: "internal_error",             # Internal system error
+    2011: "laser_sensor_error",         # LDS/laser sensor error
+    2012: "path_blocked",              # Cannot find path / navigation error
+    # S10-specific base station errors
+    2728: "clean_water_tank_empty",     # Clean water tank empty
+    2739: "dirty_water_tank_full",      # Dirty water tank full
+    2740: "dirty_water_tank_removed",   # Dirty water tank removed
+}
+
+# Separate operational failure reasons (from APK operateFail* strings)
+# These appear as transient conditions checked before/during commands.
+OPERATIONAL_ERRORS: Final[dict[str, str]] = {
+    "operateFailLowBattery": "Low battery",
+    "operateFailClearWaterEmpty": "Clean water tank empty",
+    "operateFailDirtWaterFull": "Dirty water tank full",
+    "operateFailNoClearWater": "No clean water tank",
+    "operateFailNoDirtWater": "No dirty water tank",
+    "operateFailOutBaseStation": "Robot not at base station",
+    "operateFailOutStation": "Robot not at station",
+    "operateFailRepeatControl": "Duplicate command",
+}
+
 # S3
 S3_REGION: Final = "eu-central-1"
 
