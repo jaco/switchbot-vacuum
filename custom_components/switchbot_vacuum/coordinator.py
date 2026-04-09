@@ -21,6 +21,7 @@ from .const import (
     API_TIMEOUT,
     APP_VERSION,
     CLIENT_ID,
+    CONF_CACHED_ROOMS,
     CONF_DEVICE_MAC,
     CONF_PASSWORD,
     CONF_PRODUCT_KEY,
@@ -83,7 +84,9 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
         self.user_id: str | None = None
         self._uuid: str = str(uuid.uuid4())
         self._token_expiry: float = 0
-        self._rooms: dict[str, str] = {}  # ROOM_ID -> name
+        # Restore rooms from the options cache so they survive HA restarts.
+        cached: Any = entry.options.get(CONF_CACHED_ROOMS, {})
+        self._rooms: dict[str, str] = cached if isinstance(cached, dict) else {}
         self._last_room_refresh: float = 0
 
         super().__init__(
@@ -327,6 +330,7 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
             if room_ids:
                 self._rooms = {f"room{rid}": f"room{rid}" for rid in sorted(room_ids)}
                 self._last_room_refresh = time.time()
+                self._persist_rooms()
                 _LOGGER.info("Loaded %d K10+ rooms: %s", len(self._rooms), list(self._rooms))
         except Exception as exc:
             _LOGGER.warning("Failed to refresh K10+ rooms: %s", exc)
@@ -368,6 +372,7 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
         if rooms_from_plans:
             self._rooms = rooms_from_plans
             self._last_room_refresh = time.time()
+            self._persist_rooms()
             _LOGGER.info("Loaded %d rooms from room plans property", len(rooms_from_plans))
             return
 
@@ -419,9 +424,17 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
                             rooms[room_id] = name
                     self._rooms = rooms
                     self._last_room_refresh = time.time()
+                    self._persist_rooms()
                     _LOGGER.info("Loaded %d rooms from map", len(rooms))
         except Exception as exc:
             _LOGGER.warning("Failed to parse map zip: %s", exc)
+
+    def _persist_rooms(self) -> None:
+        """Save the current room map to config entry options so it survives restarts."""
+        self.hass.config_entries.async_update_entry(
+            self.entry,
+            options={**self.entry.options, CONF_CACHED_ROOMS: self._rooms},
+        )
 
     async def _background_room_refresh(self) -> None:
         """Refresh rooms in the background so it doesn't block coordinator updates."""
