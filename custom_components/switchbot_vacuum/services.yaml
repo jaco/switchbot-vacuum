@@ -57,6 +57,40 @@ clean_rooms:
       selector:
         boolean:
 
+clean_custom:
+  name: "Clean Custom"
+  description: "Clean multiple rooms in one session, each with its own mode (S10 custom cleaning mode)"
+  target:
+    entity:
+      domain: vacuum
+      integration: switchbot_vacuum
+  fields:
+    rooms:
+      name: "Rooms"
+      description: 'List of rooms with per-room modes: [{"room_id": "ROOM_002", "mode": {"fan_level": 4, "times": 2, "type": "sweep_mop", "water_level": 3}}, ...]'
+      required: true
+      example:
+        - room_id: ROOM_002
+          mode:
+            fan_level: 4
+            times: 2
+            type: sweep_mop
+            water_level: 3
+        - room_id: ROOM_004
+          mode:
+            fan_level: 2
+            times: 1
+            type: sweep_mop
+            water_level: 1
+      selector:
+        object:
+    force_order:
+      name: "Force Order"
+      description: "Follow the room order of the list"
+      default: true
+      selector:
+        boolean:
+
 force_refresh:
   name: "Force Refresh"
   description: "Force refresh device status and room data from S3"

@@ -121,6 +121,33 @@ async def async_setup_entry(
     )
 
     platform.async_register_entity_service(
+        "clean_custom",
+        {
+            vol.Required("rooms"): [
+                {
+                    vol.Required("room_id"): str,
+                    vol.Required("mode"): {
+                        vol.Required("fan_level"): vol.All(
+                            vol.Coerce(int), vol.Range(min=1, max=4)
+                        ),
+                        vol.Required("water_level"): vol.All(
+                            vol.Coerce(int), vol.Range(min=1, max=3)
+                        ),
+                        vol.Required("times"): vol.All(
+                            vol.Coerce(int), vol.Range(min=1, max=2)
+                        ),
+                        vol.Optional("type", default="sweep_mop"): vol.In(
+                            ["sweep", "mop", "sweep_mop"]
+                        ),
+                    },
+                }
+            ],
+            vol.Optional("force_order", default=True): bool,
+        },
+        "async_clean_custom",
+    )
+
+    platform.async_register_entity_service(
         "force_refresh",
         {},
         "async_force_refresh",
@@ -338,6 +365,51 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
                     "force_order": force_order,
                     "mode": room_mode,
                     "rooms": room_list,
+                },
+            })
+        await self.coordinator.async_request_refresh()
+
+    async def async_clean_custom(
+        self,
+        rooms: list[dict],
+        force_order: bool = True,
+    ) -> None:
+        """Clean multiple rooms in one session, each with its own mode (S10 custom cleaning).
+
+        rooms: [{"room_id": "ROOM_002", "mode": {"fan_level": 4, "times": 2,
+                "type": "sweep_mop", "water_level": 3}}, ...]
+        Accepts room IDs (ROOM_xxx) or room names.
+        """
+        room_map = self.coordinator.data.get("rooms", {})
+        name_to_id = {v: k for k, v in room_map.items()}
+
+        resolved = []
+        for item in rooms:
+            rid = item.get("room_id")
+            mode = item.get("mode", {})
+            if rid and rid.startswith("ROOM_"):
+                resolved.append({"room_id": rid, "mode": mode})
+            elif rid in name_to_id:
+                resolved.append({"room_id": name_to_id[rid], "mode": mode})
+            else:
+                _LOGGER.warning("Unknown room: %s", rid)
+                resolved.append({"room_id": rid, "mode": mode})
+
+        if self._is_k10 or self._is_k10_pro:
+            _LOGGER.warning(
+                "K10+ does not support per-room custom cleaning via cloud API "
+                "(uses local Qihoo SDK in the official app). Starting whole-house clean."
+            )
+            await self.coordinator.async_send_action("StartDefaultClean", {"CleanTimes": 1})
+            self._optimistic_update(K10_WORK_STATUS_CLEANING)
+        else:
+            await self.coordinator.async_send_command(CMD_CLEAN, {
+                "0": "clean_all",
+                "1": {
+                    "custom_clean": True,
+                    "force_order": force_order,
+                    "no_water_station_mode": False,
+                    "rooms": resolved,
                 },
             })
         await self.coordinator.async_request_refresh()
