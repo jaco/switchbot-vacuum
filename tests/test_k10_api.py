@@ -7,6 +7,7 @@ import base64
 import importlib.util
 import json
 import unittest
+import uuid
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -57,6 +58,17 @@ def storage(*, endpoint="oss-eu-central-1.aliyuncs.com"):
 
 
 class ProtocolTests(unittest.TestCase):
+    def test_default_nonce_is_uuid4(self):
+        result = api.signed_params("installation", timestamp=1700000000)
+        self.assertEqual(uuid.UUID(hex=result["sign_no"]).version, 4)
+
+    def test_default_nonce_does_not_read_a_host_identifier(self):
+        with (
+            patch.object(api.uuid, "uuid1", side_effect=AssertionError("Hardware nonce forbidden")),
+            patch.object(api.uuid, "getnode", side_effect=AssertionError("Hardware read forbidden")),
+        ):
+            api.signed_params("installation", timestamp=1700000000)
+
     def test_known_signature(self):
         result = api.signed_params("installation", timestamp=1700000000, nonce="abc")
         self.assertEqual(result["sign"], "63c640785a2c4005955e497796b5184a")
@@ -126,6 +138,27 @@ class Session:
 
 
 class AsyncProtocolTests(unittest.IsolatedAsyncioTestCase):
+    async def test_account_token_is_not_sent_to_another_cloud(self):
+        client = api.K10Api("example-device", "example-product", "installation")
+        session = Session([])
+        with self.assertRaises(api.K10ProtocolError):
+            await client.authorize(session, "https://attacker.example", "fake-account-token", "family")
+        self.assertEqual(session.calls, [])
+
+    async def test_delegated_token_is_not_in_request_query(self):
+        client = api.K10Api("example-device", "example-product", "installation")
+        client.token = "fake-sensitive-delegated-token"
+        session = Session([{"code": 0}])
+        await client.request(session, "/v1/iot/device/get_property")
+        self.assertNotIn(client.token, json.dumps(session.calls[0][2]["params"]))
+
+    async def test_authenticated_cloud_request_does_not_follow_redirects(self):
+        client = api.K10Api("example-device", "example-product", "installation")
+        client.token = "fake-token"
+        session = Session([{"code": 0}])
+        await client.request(session, "/v1/iot/device/get_property")
+        self.assertIs(session.calls[0][2]["allow_redirects"], False)
+
     async def test_transport_timeout_does_not_retry_start(self):
         data = map_data(rooms=[room(room_id=1, name="Entry")])
         client = api.K10Api("example-device", "example-product", "installation")

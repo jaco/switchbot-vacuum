@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 API = "https://eu1-sapp-api.botslab.com"
 WONDER = "https://wonderlabs.eu.api.switchbot.net"
 APP_KEY = "toB_woan_adr"
+# Shared signing constant embedded in the official Android SDK, not an account token.
 APP_SECRET = "cec7fba0b848ae747f0af304ce4d1e54"
 # Android 10.6 SweeperPlanModel.setWindModeType and SweepMopType enum.
 ROOM_SUCTION = {1: "quiet", 2: "auto", 3: "strong", 4: "max"}
@@ -44,7 +45,7 @@ def signed_params(
     m2: str, *, timestamp: int | None = None, nonce: str | None = None
 ) -> dict[str, str]:
     sign_ts = str(int(time.time()) if timestamp is None else timestamp)
-    sign_no = uuid.uuid1().hex if nonce is None else nonce
+    sign_no = uuid.uuid4().hex if nonce is None else nonce
     signature = hashlib.md5((APP_KEY + m2 + sign_ts + sign_no + APP_SECRET).encode()).hexdigest()
     return {
         "appkey": APP_KEY,
