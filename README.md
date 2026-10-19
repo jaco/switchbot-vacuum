@@ -18,25 +18,33 @@ The official [SwitchBot Cloud integration](https://www.home-assistant.io/integra
 
 ## Model support
 
-The feature list includes capabilities that differ by model. This change adds K10+ EU room support to the existing integration and keeps the same login, entities, and `clean_rooms` / `force_refresh` services.
+Available features depend on the vacuum model and region.
 
 | Capability | S10 | K10+ (EU) |
 |------------|-----|-----------|
-| Account email/password setup and device selection | Existing flow | Same flow; no manual token capture required |
-| Vacuum activity and battery | Existing support | Existing support; docked, cleaning and paused observed live |
-| Specific error types and problem detection | Existing support | Not implemented; do not rely on these sensors for K10+ fault automations |
-| Room sensors with names from the map | Existing support | Supported; all six rooms verified on one device |
-| `clean_rooms` by name or ID | Existing support | Supported; one room physically verified |
-| Room command mode and suction overrides | Supported | Implemented: sweep or mop; fan_level 1–4. Quiet write verified live; mop test pending |
+| Account email/password setup and device selection | Supported | Supported; no manual token capture required |
+| Vacuum activity and battery | Supported | Supported |
+| Specific error types and problem detection | Supported | Not implemented; do not rely on these sensors for K10+ fault automations |
+| Room sensors with names from the map | Supported | Supported |
+| `clean_rooms` by name or ID | Supported | Supported |
+| Room command mode and suction overrides | Supported | Vacuum or mop; four suction levels |
 | Water output | Supported | Not applicable: disposable wipe, no water tank or pump |
-| Empty dustbin button | Not added by this change | Implemented; docked precondition and robot reply checked. Live status showed collecting → docked |
-| Cleaning mode select | Not added by this change | Vacuum/mop with mop-plate checks; selecting a mode does not start cleaning |
-| Room command passes and order | Supported | Supported by the protocol; one pass physically verified |
-| Automatic map refresh every 24 hours | Existing support | Implemented; the full 24-hour interval has not yet been observed |
-| Multiple vacuums on one account | Existing flow | Selected-device routing tested with fake devices; only one physical device tested |
-| `force_refresh` for status and rooms | Existing service | Same service using the K10+ map protocol |
+| Empty dustbin button | — | Supported while docked |
+| Cleaning mode select | — | Vacuum/mop; selecting a mode does not start cleaning |
+| Room command passes and order | Supported | One or two passes; optional room order |
+| Automatic map refresh every 24 hours | Supported | Supported |
+| Multiple vacuums on one account | Supported | Supported |
+| `force_refresh` for status and rooms | Supported | Supported |
 
-K10+ Pro room support and regions outside EU are not added by this change.
+K10+ room cleaning is currently limited to the EU region. K10+ Pro room cleaning is not supported.
+
+### Tested setup
+
+K10+ support was tested with a **SwitchBot Mini Robot Vacuum K10+ (EU)** in **Home Assistant Container (Docker) 2026.10.1**. The installation included a separate battery compatibility patch required for Home Assistant 2026.8+.
+
+Verified through Home Assistant: email/password login and reauthentication after a password change, room discovery, device status and battery, starting a selected room with one pass, pausing, changing suction from max to quiet, quiet room cleaning, and emptying the dustbin.
+
+Mop mode, two passes, multi-room cleaning order, multiple physical vacuums, and long-running automatic refresh have not yet been verified on hardware. Other K10+ regions and K10+ Pro have not been tested.
 
 ## Installation
 
@@ -192,7 +200,7 @@ data:
 
 ### `switchbot_vacuum.force_refresh`
 
-Force an immediate refresh of device status and room data from the model's cloud map (S10: S3; K10+: signed Qihoo/OSS map download).
+Force an immediate refresh of device status and room data from the vacuum's cloud map.
 
 ```yaml
 service: switchbot_vacuum.force_refresh
@@ -272,7 +280,7 @@ automation:
 
 ## K10+ rooms (EU region)
 
-Room names and numeric IDs are read from the current map using the signed Qihoo API. Creating cleaning schedules is not required. Use `switchbot_vacuum.force_refresh` to refresh the map and room sensors.
+Room names and numeric IDs are read from the vacuum's current cloud map. Creating cleaning schedules is not required. Use `switchbot_vacuum.force_refresh` to refresh the map and room sensors.
 
 Use the existing `switchbot_vacuum.clean_rooms` service for K10+ room cleaning:
 
@@ -299,20 +307,17 @@ The device also exposes a **Cleaning mode** select (`vacuum`, `mop`) and an **Em
 - Changing the select sets the mode without starting cleaning. Pause an active task before changing modes. Room cleaning waits for the new mode to be confirmed before starting.
 - Use the standard `vacuum.set_fan_speed` action with `quiet`, `standard`, `strong`, or `max` to set device suction. Room commands have their own `fan_level` override; when omitted, app room settings are retained.
 - Press **Empty dustbin** while docked to collect dust into the base. The command is sent once and the robot's reply is checked.
-- Mode and mop-plate state are read from Qihoo properties each status update. If that read fails, these extra controls become unavailable while basic vacuum status can continue through SwitchBot.
+- Mode and mop-plate state are refreshed with each status update. If that read fails, these extra controls become unavailable while basic vacuum status can continue through SwitchBot.
 
-The new mode, suction and emptying paths were reconstructed from Android 10.6. Seventy focused tests passed in HA 2026.10.1 / Python 3.14.6. Live HA calls changed suction from max to quiet and produced a collecting-dust → docked status sequence. A short quiet Entry call received the robot reply and Pause was sent after 9.35 seconds; the owner confirmed emptying, room cleaning and stopping. The immediate post-start cloud refresh was removed to avoid overwriting the acknowledged start with a cached docked state; regular status polling remains. Mop switching still needs a physical test with the plate installed. The earlier Entry test with existing room settings was physically confirmed.
+Start requests are never retried automatically. If confirmation times out, check the robot before retrying.
 
-This implementation uses the existing SwitchBot email/password login, obtains a delegated Qihoo token, uploads the selected-room configuration with temporary OSS credentials, and waits for the robot's reply. It never automatically retries the start request. If confirmation times out, check the robot before retrying.
-
-The protocol was reconstructed from SwitchBot Android 10.6 and physically verified on one K10+ using the EU endpoints: the selected room started and the robot returned `ErrorNO: 0`. Login recovery, room discovery, and a dashboard room-start/pause test were also verified in Home Assistant Container 2026.10.1, with its existing battery compatibility migration applied. Other regions and K10+ Pro room cleaning are not covered by this implementation. This remains an unofficial cloud protocol and may change.
+K10+ controls require an internet connection and use an unofficial cloud API, which may change.
 
 ## Technical notes
 
 - The integration polls the device every 30 seconds
 - Auth tokens are refreshed automatically every 1.5 hours
 - Room names are refreshed from the cloud map every 24 hours (or on demand via `force_refresh`); room refresh runs as a background task so it never blocks setup
-- K10+ status and room requests share Home Assistant's managed HTTP session and DNS cache. A start request is never retried automatically.
 - For S10, error codes are read from device property 1019 and mapped to descriptive strings; unknown codes are logged as warnings so they can be reported and added
 - Error code mappings were reverse-engineered from the SwitchBot APK's Flutter module (`feature_sweeper`, Qihoo 360 SDK)
 
