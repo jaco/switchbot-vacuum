@@ -15,12 +15,30 @@
         "data": {
           "device_mac": "Device"
         }
+      },
+      "reauth_confirm": {
+        "title": "Update SwitchBot password",
+        "description": "Enter the current password for the existing SwitchBot account. Your device and entities will be kept.",
+        "data": {
+          "password": "SwitchBot password"
+        }
+      },
+      "reconfigure": {
+        "title": "Update SwitchBot password",
+        "description": "Enter the current password for the existing SwitchBot account. Your device and entities will be kept.",
+        "data": {
+          "password": "SwitchBot password"
+        }
       }
     },
     "error": {
       "invalid_auth": "Invalid authentication",
       "no_devices": "No SwitchBot Vacuum devices found in account",
-      "cannot_connect": "Cannot connect to SwitchBot API"
+      "cannot_connect": "Cannot connect to SwitchBot API",
+      "device_not_found": "The existing vacuum was not found in this account."
+    },
+    "abort": {
+      "unique_id_mismatch": "The authenticated device does not match the existing vacuum."
     }
   }
 }

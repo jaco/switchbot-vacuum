@@ -4,17 +4,47 @@ Custom [HACS](https://hacs.xyz/) integration for SwitchBot robot vacuums (S10 an
 
 ## Why this exists
 
-SwitchBot does not provide a public API for their robot vacuums. The official SwitchBot integration in Home Assistant does not support vacuum control. This integration uses SwitchBot's internal cloud API (reverse-engineered from the mobile app) to provide full vacuum control, room-aware cleaning, and automatic room name discovery.
+The official [SwitchBot Cloud integration](https://www.home-assistant.io/integrations/switchbot_cloud/#vacuums) provides basic vacuum controls. This custom integration uses internal cloud APIs, reverse-engineered from the mobile app, to add room-specific cleaning and automatic room name discovery.
 
 ## Features
 
 - **Vacuum entity** with full state reporting (cleaning, docked, paused, returning, idle)
-- **Error detection** — error sensor with specific error types (stuck, water tank empty, brush tangled, etc.) and a problem binary sensor for easy automations
+- **Error detection (S10)** — an error sensor with specific error types and a problem binary sensor for automations. K10+ error reporting is not implemented; see the model support table below.
 - **Room sensor entities** — one per room discovered from the vacuum's map
-- **Room-aware cleaning** — clean specific rooms by name or ID, with full control over mode, suction, water level, passes, and order
-- **Automatic room discovery** — room names are downloaded from the vacuum's S3 map data every 24 hours
+- **Room-aware cleaning** — clean specific rooms by name or ID. S10 supports mode, suction, water level, passes, and order; K10+ EU supports vacuum/mop mode, suction, passes, and order. K10+ uses a disposable wipe with no water tank or pump.
+- **Automatic room discovery** — room names are downloaded from the vacuum's cloud map every 24 hours
 - **Multi-device support** — if your account has multiple SwitchBot vacuums, the config flow lets you pick which one to add
 - **Force refresh service** — manually re-download room data and device status on demand
+
+## Model support
+
+Available features depend on the vacuum model and region.
+
+| Capability | S10 | K10+ (EU) |
+|------------|-----|-----------|
+| Account email/password setup and device selection | Supported | Supported; no manual token capture required |
+| Vacuum activity and battery | Supported | Supported |
+| Specific error types and problem detection | Supported | Not implemented; do not rely on these sensors for K10+ fault automations |
+| Room sensors with names from the map | Supported | Supported |
+| `clean_rooms` by name or ID | Supported | Supported |
+| Room command mode and suction overrides | Supported | Vacuum or mop; four suction levels |
+| Water output | Supported | Not applicable: disposable wipe, no water tank or pump |
+| Empty dustbin button | — | Supported while docked |
+| Cleaning mode select | — | Vacuum/mop; selecting a mode does not start cleaning |
+| Room command passes and order | Supported | One or two passes; optional room order |
+| Automatic map refresh every 24 hours | Supported | Supported |
+| Multiple vacuums on one account | Supported | Supported |
+| `force_refresh` for status and rooms | Supported | Supported |
+
+K10+ room cleaning is currently limited to the EU region. K10+ Pro room cleaning is not supported.
+
+### Tested setup
+
+K10+ support was tested with a **SwitchBot Mini Robot Vacuum K10+ (EU)** in **Home Assistant Container (Docker) 2026.10.1**. The installation included a separate battery compatibility patch required for Home Assistant 2026.8+.
+
+Verified through Home Assistant: email/password login and reauthentication after a password change, room discovery, device status and battery, starting a selected room with one pass, pausing, changing suction from max to quiet, quiet room cleaning, and emptying the dustbin.
+
+Mop mode, two passes, multi-room cleaning order, multiple physical vacuums, and long-running automatic refresh have not yet been verified on hardware. Other K10+ regions and K10+ Pro have not been tested.
 
 ## Installation
 
@@ -39,6 +69,8 @@ Copy `custom_components/switchbot_vacuum/` to your Home Assistant `config/custom
 
 You can add the integration multiple times for multiple vacuums.
 
+If you change your SwitchBot password, open the integration entry menu and select **Reconfigure** to enter the current password. Authentication failures also offer a reauthentication form. Both flows keep the existing device and entities, and check that the same vacuum is still present in the account.
+
 ## Screenshots
 
 | Device & room entities | Clean rooms service | Room sensor detail |
@@ -62,7 +94,7 @@ The main entity (`vacuum.switchbot_vacuum`) provides:
 
 #### Extra attributes
 
-The vacuum entity exposes additional attributes you can use in automations and templates:
+The vacuum entity exposes additional attributes you can use in automations and templates. Water and cleaning-summary attributes below describe S10. K10+ exposes the actual `clean_type` (`sweep` or `mop`), `mopping_pad_installed`, rooms and a default pass count, not the last room command's pass count:
 
 | Attribute | Example | Description |
 |-----------|---------|-------------|
@@ -98,7 +130,9 @@ The vacuum entity exposes additional attributes you can use in automations and t
 | `binary_sensor.*.problem` | Problem | ON when any error is active — simplest automation trigger |
 | `sensor.*.error` | Sensor | Current error type as a string (e.g. `stuck`, `clean_water_tank_empty`) or `none` |
 
-The error sensor state is one of:
+The following mappings apply to S10. K10+ currently supplies a fixed zero error code, so its error/problem entities do not provide reliable fault detection.
+
+The S10 error sensor state is one of:
 
 | State | Error code | Description |
 |-------|-----------|-------------|
@@ -126,7 +160,7 @@ Both entities expose `error_code` (raw integer) and `error_type`/`error_descript
 
 ### Room sensors
 
-Each room discovered from the vacuum's map gets a sensor entity (e.g. `sensor.kitchen`, `sensor.bedroom`). The sensor value is the room name, and the `room_id` attribute contains the internal ID (e.g. `ROOM_013`).
+Each room discovered from the vacuum's map gets a sensor entity (e.g. `sensor.kitchen`, `sensor.bedroom`). The sensor value is the room name, and the `room_id` attribute contains the internal ID (S10: e.g. `ROOM_013`; K10+: e.g. `room1`).
 
 ```yaml
 # Get room ID for use in clean_rooms service
@@ -137,7 +171,7 @@ Each room discovered from the vacuum's map gets a sensor entity (e.g. `sensor.ki
 
 ### `switchbot_vacuum.clean_rooms`
 
-Clean specific rooms with full control over cleaning parameters.
+Clean specific rooms by name or ID. The example and mode/suction/water defaults below apply to S10. For K10+ EU, the same service also accepts `mode` (`sweep` or `mop`) and `fan_level` (1–4), as shown in the K10+ section. Water settings and simultaneous sweep/mop do not apply to this hardware.
 
 ```yaml
 service: switchbot_vacuum.clean_rooms
@@ -158,15 +192,15 @@ data:
 | Parameter | Required | Default | Values |
 |-----------|----------|---------|--------|
 | `rooms` | yes | — | List of room names or IDs (can mix) |
-| `mode` | no | `sweep_mop` | `sweep`, `mop`, `sweep_mop` |
-| `fan_level` | no | `1` | 1 (quiet), 2 (standard), 3 (strong), 4 (max) |
-| `water_level` | no | `1` | 1 (low), 2 (medium), 3 (high) |
+| `mode` | no | S10: `sweep_mop`; K10+: current mode | `sweep`, `mop`; `sweep_mop` is S10 only |
+| `fan_level` | no | S10: `1`; K10+: each room's app setting | 1 (quiet), 2 (standard), 3 (strong), 4 (max) |
+| `water_level` | no | S10: `1` | S10 only: 1 (low), 2 (medium), 3 (high); omit for K10+ |
 | `times` | no | `1` | 1 or 2 passes |
 | `force_order` | no | `true` | Clean rooms in the specified order |
 
 ### `switchbot_vacuum.force_refresh`
 
-Force an immediate refresh of device status and room data (re-downloads the map from S3).
+Force an immediate refresh of device status and room data from the vacuum's cloud map.
 
 ```yaml
 service: switchbot_vacuum.force_refresh
@@ -244,39 +278,47 @@ automation:
           entity_id: vacuum.switchbot_vacuum
 ```
 
-## K10+ room discovery
+## K10+ rooms (EU region)
 
-The K10+ does not expose room names or IDs via the public API. Room IDs are read from the cleaning schedule stored on the robot. To make room entities appear in Home Assistant you need to create at least one schedule with specific rooms selected:
+Room names and numeric IDs are read from the vacuum's current cloud map. Creating cleaning schedules is not required. Use `switchbot_vacuum.force_refresh` to refresh the map and room sensors.
 
-1. Open the SwitchBot app
-2. Go to your K10+ → **Schedule**
-3. Add a new schedule, select **Clean by Room**, and pick the rooms you want
-4. Save the schedule (it can be left **disabled** — it only needs to exist)
+Use the existing `switchbot_vacuum.clean_rooms` service for K10+ room cleaning:
 
-The integration reads `smartAreaIds` from all schedules every 24 hours and creates sensor entities named `room0`, `room1`, `room2`, etc. You can also trigger an immediate refresh via the `switchbot_vacuum.force_refresh` service.
+```yaml
+action: switchbot_vacuum.clean_rooms
+target:
+  entity_id: vacuum.switchbot_vacuum
+data:
+  rooms:
+    - "Entry"
+  mode: sweep
+  fan_level: 1
+  times: 1
+  force_order: true
+```
 
-Room names are not available through the API — only numeric IDs. To find which ID corresponds to which room, run the robot on a known room using the app and note which ID appears in the schedule.
+The action accepts room names, numeric IDs as strings, and legacy IDs such as `room1`. It supports one or two passes. Omit `fan_level` to keep each room's app settings, or supply 1–4 to override only the selected rooms for this request. Omit `mode` to keep the current device mode, or choose `sweep` / `mop`. Unknown rooms, `water_level`, and `sweep_mop` are rejected. A failed K10+ room command never falls back to whole-house cleaning.
 
-## K10+ room cleaning — not supported
+### K10+ controls
 
-The K10+ **cannot** clean individual rooms via this integration, even though the SwitchBot app supports it. Here is why:
+The device also exposes a **Cleaning mode** select (`vacuum`, `mop`) and an **Empty dustbin** button. Entity IDs are generated by Home Assistant and can be found on the device page.
 
-Room cleaning on the K10+ goes through **Qihoo's proprietary IoT cloud API** (`eu1-sapp-api.botslab.com`), not the standard SwitchBot API. Every request to this API requires a cryptographic `sign` query parameter. The signing algorithm is implemented inside Flutter's AOT-compiled binary (`libapp.so`) and has been extensively reverse-engineered without success:
+- Install the mop plate with its cleaning sheet before selecting `mop`; remove it before selecting `vacuum`. K10+ cannot vacuum and mop simultaneously. [SwitchBot's hardware guidance](https://support.switch-bot.com/hc/en-us/articles/14215810297879-Can-SwitchBot-Mini-Robot-Vacuum-K10-K10-Pro-K11-K11-Pro-Simultaneously-Vacuum-and-Mop).
+- Changing the select sets the mode without starting cleaning. Pause an active task before changing modes. Room cleaning waits for the new mode to be confirmed before starting.
+- Use the standard `vacuum.set_fan_speed` action with `quiet`, `standard`, `strong`, or `max` to set device suction. Room commands have their own `fan_level` override; when omitted, app room settings are retained.
+- Press **Empty dustbin** while docked to collect dust into the base. The command is sent once and the robot's reply is checked.
+- Mode and mop-plate state are refreshed with each status update. If that read fails, these extra controls become unavailable while basic vacuum status can continue through SwitchBot.
 
-- Over 50 combinations of MD5, SHA1, SHA256, HMAC-SHA1, and HMAC-SHA256 were tried with inputs including the app key, app secret, timestamp, nonce, auth token, cookie string, device ID, and all URL parameters — all return `{"code":1001,"msg":"Sign error"}`.
-- The Dart/Flutter code is compiled to ARM64 machine code with no readable symbols, making static analysis very difficult. The signing logic is buried in 14 MB of code with no accessible source.
-- The `sign_ts`, `sign_no`, `appkey`, `m2`, `appver`, `ci_brand`, `ci_model`, `ci_osver`, and `sign` parameters were all identified from APK analysis, but the exact input and order for the hash remain unknown.
+Start requests are never retried automatically. If confirmation times out, check the robot before retrying.
 
-Until someone intercepts a valid signed request (e.g. via SSL proxy on a rooted device) or finds the signing formula through further binary analysis, K10+ room-by-room cleaning cannot be implemented.
-
-The `switchbot_vacuum.clean_rooms` service will **not appear** for K10+ devices. Full-house cleaning (`vacuum.start`) works normally.
+K10+ controls require an internet connection and use an unofficial cloud API, which may change.
 
 ## Technical notes
 
 - The integration polls the device every 30 seconds
 - Auth tokens are refreshed automatically every 1.5 hours
-- Room names are refreshed from S3 map data every 24 hours (or on demand via `force_refresh`); room refresh runs as a background task so it never blocks setup
-- Error codes are read from device property 1019 and mapped to descriptive strings; unknown codes are logged as warnings so they can be reported and added
+- Room names are refreshed from the cloud map every 24 hours (or on demand via `force_refresh`); room refresh runs as a background task so it never blocks setup
+- For S10, error codes are read from device property 1019 and mapped to descriptive strings; unknown codes are logged as warnings so they can be reported and added
 - Error code mappings were reverse-engineered from the SwitchBot APK's Flutter module (`feature_sweeper`, Qihoo 360 SDK)
 
 ## License

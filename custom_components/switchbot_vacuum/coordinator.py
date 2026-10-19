@@ -13,8 +13,11 @@ from typing import Any
 import aiohttp
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+
+from .k10_api import CLEAN_MODES, WONDER, K10Api, K10ProtocolError, room_names
 
 from .const import (
     API_AUTH_HOST,
@@ -85,6 +88,8 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
         self._token_expiry: float = 0
         self._rooms: dict[str, str] = {}  # ROOM_ID -> name
         self._last_room_refresh: float = 0
+        self._k10_api: K10Api | None = None
+        self._k10_group_id: str | None = None
 
         super().__init__(
             hass,
@@ -293,23 +298,90 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
 
     async def async_get_k10_status(self) -> dict[str, Any]:
         """Fetch real-time K10+ status via getstatus endpoint."""
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"{self.wonderlab_endpoint}/wonder/devicestatus/v1/getstatus",
-                headers=self._headers(),
-                json={"items": [self.device_mac]},
-                timeout=aiohttp.ClientTimeout(total=API_TIMEOUT),
-            ) as resp:
-                data = await resp.json()
-                if data.get("statusCode") != 100:
-                    raise UpdateFailed(f"K10+ getstatus failed: {data}")
-                items = data.get("body", {}).get("items", [])
-                if not items:
-                    raise UpdateFailed("K10+ getstatus returned no items")
-                return items[0]
+        session = async_get_clientsession(self.hass)
+        async with session.post(
+            f"{self.wonderlab_endpoint}/wonder/devicestatus/v1/getstatus",
+            headers=self._headers(),
+            json={"items": [self.device_mac]},
+            timeout=aiohttp.ClientTimeout(total=API_TIMEOUT),
+        ) as resp:
+            data = await resp.json()
+            if data.get("statusCode") != 100:
+                raise UpdateFailed(f"K10+ getstatus failed: {data}")
+            items = data.get("body", {}).get("items", [])
+            if not items:
+                raise UpdateFailed("K10+ getstatus returned no items")
+            return items[0]
+
+    async def _authorize_k10_api(self, session: aiohttp.ClientSession) -> K10Api:
+        """Resolve the selected device's family and delegated Qihoo session."""
+        await self._ensure_token()
+        if not self._is_k10() or not self.device_mac:
+            raise K10ProtocolError("Select a K10+ device before using K10 room support")
+        if not self._k10_group_id:
+            devices = await self.async_discover_devices()
+            selected = next((d for d in devices if d["device_mac"] == self.device_mac), None)
+            if not selected or not selected.get("group_id"):
+                raise K10ProtocolError("The selected K10+ has no family identifier")
+            self._k10_group_id = selected["group_id"]
+        if self._k10_api is None:
+            self._k10_api = K10Api(
+                self.device_mac, await self._get_product_key(), self._uuid.replace("-", "")
+            )
+        if not self.access_token or not self.wonderlab_endpoint:
+            raise K10ProtocolError("SwitchBot account session is unavailable")
+        await self._k10_api.authorize(
+            session, self.wonderlab_endpoint, self.access_token, self._k10_group_id
+        )
+        return self._k10_api
+
+    async def async_clean_k10_rooms(
+        self, rooms: list[str], times: int, force_order: bool,
+        mode: str | None = None, fan_level: int | None = None,
+    ) -> None:
+        """Start only validated rooms, preserving their configured suction."""
+        session = async_get_clientsession(self.hass)
+        api = await self._authorize_k10_api(session)
+        await api.clean_rooms(session, rooms, times, force_order, mode=mode, fan_level=fan_level)
+
+    async def async_k10_control(self, command: str, value: str | int | None = None) -> None:
+        """Execute a supported K10+ control without leaking signed network URLs."""
+        if command not in ("mode", "suction", "empty_dustbin"):
+            raise HomeAssistantError("Unknown K10+ control")
+        try:
+            session = async_get_clientsession(self.hass)
+            api = await self._authorize_k10_api(session)
+            if command == "mode":
+                await api.set_mode(session, value)
+            elif command == "suction":
+                await api.set_suction(session, value)
+            else:
+                await api.empty_dustbin(session)
+        except K10ProtocolError as exc:
+            raise HomeAssistantError(str(exc)) from None
+        except (aiohttp.ClientError, TimeoutError, ValueError, KeyError, TypeError) as exc:
+            raise HomeAssistantError(
+                f"K10+ control failed ({type(exc).__name__}); check robot state before retrying"
+            ) from None
+        await self.async_request_refresh()
 
     async def async_refresh_k10_rooms(self) -> None:
-        """Fetch K10+ room IDs from GetCleanPolicyList and build room map."""
+        """Read K10+ map rooms; retain schedule discovery for K10+ Pro."""
+        if self._is_k10():
+            try:
+                session = async_get_clientsession(self.hass)
+                api = await self._authorize_k10_api(session)
+                map_data, _ = await api.get_map(session)
+                self._rooms = {
+                    f"room{room_id}": name for room_id, name in room_names(map_data).items()
+                }
+                self._last_room_refresh = time.time()
+            except (
+                aiohttp.ClientError, TimeoutError, ValueError, KeyError, TypeError, K10ProtocolError
+            ) as exc:
+                # Network exceptions may contain a signed map URL; log only the type.
+                _LOGGER.warning("K10+ map refresh failed (%s)", type(exc).__name__)
+            return
         try:
             resp = await self.async_send_action("GetCleanPolicyList")
             if resp.get("statusCode") != 100:
@@ -449,17 +521,32 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
         if time.time() - self._last_room_refresh > 86400:
             self.hass.async_create_task(self._background_room_refresh())
 
+        properties = {}
+        if self.wonderlab_endpoint and self.wonderlab_endpoint.rstrip("/") == WONDER:
+            try:
+                session = async_get_clientsession(self.hass)
+                api = await self._authorize_k10_api(session)
+                properties = await api.get_properties(session)
+            except (
+                aiohttp.ClientError, TimeoutError, ValueError, KeyError, TypeError, K10ProtocolError
+            ) as exc:
+                _LOGGER.debug("K10+ control properties unavailable (%s)", type(exc).__name__)
+        mode = next((name for name, value in CLEAN_MODES.items()
+                     if value == properties.get("MopModeSwitching")), None)
+
         return {
             "online": status.get("online_status") == "online",
             "battery": status.get("BatteryLevel", 0),
             "work_status": status.get("WorkingStatus", K10_WORK_STATUS_STANDBY),
             "error_code": 0,
             "clean_mode": {
-                "fan_level": status.get("SuctionPowLevel", 1),
-                "type": "sweep",
+                "fan_level": properties.get("SuctionPowLevel", status.get("SuctionPowLevel", 1)),
+                "type": mode,
                 "times": 1,
                 "water_level": 1,
             },
+            "k10_controls_available": bool(properties),
+            "mopping_pad_installed": properties.get("MoppingPadInstalled"),
             "clean_summary": {},
             "firmware": "",
             "rooms": self._rooms,

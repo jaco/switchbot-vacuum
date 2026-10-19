@@ -1,6 +1,6 @@
 clean_rooms:
   name: "Clean Rooms"
-  description: "Start cleaning specific rooms with custom settings"
+  description: "Clean selected rooms. K10+ EU supports vacuum/mop, suction, passes and order; water overrides are S10 only."
   target:
     entity:
       domain: vacuum
@@ -8,15 +8,14 @@ clean_rooms:
   fields:
     rooms:
       name: "Rooms"
-      description: "List of room IDs (e.g. ROOM_001) or room names"
+      description: "Room names or IDs from the selected vacuum (S10: ROOM_001; K10+: numeric or room1)."
       required: true
       example: '["ROOM_013", "ROOM_008"]'
       selector:
         object:
     mode:
       name: "Clean Mode"
-      description: "Cleaning mode"
-      default: "sweep_mop"
+      description: "S10: sweep, mop or sweep_mop (default). K10+: sweep or mop; omitted keeps current mode."
       selector:
         select:
           options:
@@ -25,8 +24,7 @@ clean_rooms:
             - "sweep_mop"
     fan_level:
       name: "Fan Level"
-      description: "Suction power (1=quiet, 2=standard, 3=strong, 4=max)"
-      default: 1
+      description: "1=quiet, 2=standard, 3=strong, 4=max. S10 default: 1; K10+ omitted: keep each room setting."
       selector:
         number:
           min: 1
@@ -34,8 +32,7 @@ clean_rooms:
           step: 1
     water_level:
       name: "Water Level"
-      description: "Water output (1=low, 2=medium, 3=high)"
-      default: 1
+      description: "S10 only: 1=low (default), 2=medium, 3=high. Leave omitted for K10+."
       selector:
         number:
           min: 1
@@ -59,7 +56,7 @@ clean_rooms:
 
 force_refresh:
   name: "Force Refresh"
-  description: "Force refresh device status and room data from S3"
+  description: "Force refresh device status and room data from the cloud map"
   target:
     entity:
       domain: vacuum

@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import aiohttp
 import voluptuous as vol
 from homeassistant.components.vacuum import (
     StateVacuumEntity,
@@ -12,6 +13,7 @@ from homeassistant.components.vacuum import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_platform
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -43,6 +45,7 @@ from .const import (
     K10_WORK_STATUS_STANDBY,
 )
 from .coordinator import SwitchBotS10Coordinator
+from .k10_api import K10ProtocolError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -102,14 +105,14 @@ async def async_setup_entry(
     platform.async_register_entity_service(
         "clean_rooms",
         {
-            vol.Required("rooms"): [str],
-            vol.Optional("mode", default="sweep_mop"): vol.In(
+            vol.Required("rooms"): vol.All([str], vol.Length(min=1)),
+            vol.Optional("mode"): vol.In(
                 ["sweep", "mop", "sweep_mop"]
             ),
-            vol.Optional("fan_level", default=1): vol.All(
+            vol.Optional("fan_level"): vol.All(
                 vol.Coerce(int), vol.Range(min=1, max=4)
             ),
-            vol.Optional("water_level", default=1): vol.All(
+            vol.Optional("water_level"): vol.All(
                 vol.Coerce(int), vol.Range(min=1, max=3)
             ),
             vol.Optional("times", default=1): vol.All(
@@ -193,6 +196,9 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
 
         if isinstance(mode, dict):
             attrs["times"] = mode.get("times", 1)
+        if self._is_k10 and isinstance(mode, dict):
+            attrs["clean_type"] = mode.get("type")
+            attrs["mopping_pad_installed"] = self.coordinator.data.get("mopping_pad_installed")
         if not self._is_k10 and not self._is_k10_pro and isinstance(mode, dict):
             attrs["water_level"] = mode.get("water_level", 1)
             attrs["clean_type"] = mode.get("type", "sweep_mop")
@@ -265,7 +271,12 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
 
     async def async_set_fan_speed(self, fan_speed: str, **kwargs: Any) -> None:
         """Set fan speed."""
-        if self._is_k10 or self._is_k10_pro:
+        if self._is_k10:
+            if fan_speed not in K10_FAN_SPEEDS:
+                raise HomeAssistantError("Unsupported K10+ fan speed")
+            await self.coordinator.async_k10_control("suction", K10_FAN_SPEEDS[fan_speed])
+            return
+        if self._is_k10_pro:
             level = K10_FAN_SPEEDS.get(fan_speed, 0)
             await self.coordinator.async_send_info({"SuctionPowLevel": level})
         else:
@@ -295,13 +306,21 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
     async def async_clean_rooms(
         self,
         rooms: list[str],
-        mode: str = "sweep_mop",
-        fan_level: int = 1,
-        water_level: int = 1,
+        mode: str | None = None,
+        fan_level: int | None = None,
+        water_level: int | None = None,
         times: int = 1,
         force_order: bool = True,
     ) -> None:
         """Clean specific rooms. Accepts room IDs or names."""
+        if self._is_k10:
+            if water_level is not None or mode not in (None, "sweep", "mop"):
+                raise HomeAssistantError(
+                    "K10+ supports sweep or mop and fan_level 1–4; "
+                    "water_level and simultaneous sweep_mop are not supported"
+                )
+            await self._async_clean_k10_rooms(rooms, times, force_order, mode, fan_level)
+            return
         room_map = self.coordinator.data.get("rooms", {})
         name_to_id = {v: k for k, v in room_map.items()}
 
@@ -324,10 +343,10 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
             self._optimistic_update(K10_WORK_STATUS_CLEANING)
         else:
             room_mode = {
-                "fan_level": fan_level,
+                "fan_level": fan_level if fan_level is not None else 1,
                 "times": times,
-                "type": mode,
-                "water_level": water_level,
+                "type": mode if mode is not None else "sweep_mop",
+                "water_level": water_level if water_level is not None else 1,
             }
             room_list = [
                 {"room_id": r, "mode": dict(room_mode)} for r in resolved
@@ -346,3 +365,22 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
         """Force refresh status and room data."""
         await self.coordinator.async_refresh_rooms()
         await self.coordinator.async_refresh()
+
+    async def _async_clean_k10_rooms(
+        self, rooms: list[str], times: int = 1, force_order: bool = True,
+        mode: str | None = None, fan_level: int | None = None,
+    ) -> None:
+        """Clean selected K10+ rooms after the robot confirms the request."""
+        try:
+            await self.coordinator.async_clean_k10_rooms(rooms, times, force_order, mode, fan_level)
+        except K10ProtocolError as exc:
+            raise HomeAssistantError(str(exc)) from None
+        except (aiohttp.ClientError, TimeoutError, ValueError, KeyError, TypeError) as exc:
+            # Do not expose signed storage URLs from lower-level network errors.
+            raise HomeAssistantError(
+                f"K10 room operation failed ({type(exc).__name__}); "
+                "check robot state before retrying"
+            ) from None
+        self._optimistic_update(K10_WORK_STATUS_CLEANING)
+        # The immediate cloud read can still report the pre-start docked state.
+        # Let the existing periodic coordinator poll observe the published status.
