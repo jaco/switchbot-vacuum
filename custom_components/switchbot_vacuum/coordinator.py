@@ -69,6 +69,11 @@ K10PRO_STATUS_PROPS = [
 ]
 
 
+def _status_code_for_log(value: Any) -> int | str:
+    """Keep numeric error codes without exposing other cloud response data."""
+    return value if type(value) is int else "unknown"
+
+
 class SwitchBotS10Coordinator(DataUpdateCoordinator):
     """Manage fetching data from SwitchBot Vacuum API."""
 
@@ -212,7 +217,8 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
             ) as resp:
                 data = await resp.json()
                 if data.get("resultCode") != 100:
-                    raise UpdateFailed(f"Property fetch failed: {data}")
+                    code = _status_code_for_log(data.get("resultCode"))
+                    raise UpdateFailed(f"Property fetch failed (resultCode {code})")
                 result = {}
                 for pid_str, prop in (data.get("data") or {}).items():
                     result[int(pid_str)] = prop.get("value")
@@ -302,7 +308,8 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
             ) as resp:
                 data = await resp.json()
                 if data.get("statusCode") != 100:
-                    raise UpdateFailed(f"K10+ getstatus failed: {data}")
+                    code = _status_code_for_log(data.get("statusCode"))
+                    raise UpdateFailed(f"K10+ getstatus failed (statusCode {code})")
                 items = data.get("body", {}).get("items", [])
                 if not items:
                     raise UpdateFailed("K10+ getstatus returned no items")
@@ -313,7 +320,10 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
         try:
             resp = await self.async_send_action("GetCleanPolicyList")
             if resp.get("statusCode") != 100:
-                _LOGGER.warning("GetCleanPolicyList failed: %s", resp)
+                _LOGGER.warning(
+                    "GetCleanPolicyList failed (statusCode %s)",
+                    _status_code_for_log(resp.get("statusCode")),
+                )
                 return
 
             result = json.loads(resp["body"]["result"])
