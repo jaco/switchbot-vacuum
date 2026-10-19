@@ -8,6 +8,7 @@ CONF_USERNAME: Final = "username"
 CONF_PASSWORD: Final = "password"
 CONF_DEVICE_MAC: Final = "device_mac"
 CONF_PRODUCT_KEY: Final = "product_key"
+CONF_CACHED_ROOMS: Final = "cached_rooms"
 
 # API
 API_AUTH_HOST: Final = "https://account.api.switchbot.net"
