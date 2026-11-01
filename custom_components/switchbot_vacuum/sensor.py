@@ -11,7 +11,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfTime
+from homeassistant.const import PERCENTAGE, UnitOfTime
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -79,7 +79,10 @@ async def async_setup_entry(
     coordinator: SwitchBotS10Coordinator = hass.data[DOMAIN][entry.entry_id]
     device_type = entry.data.get("device_type", "")
 
-    entities: list[SensorEntity] = [SwitchBotVacuumError(coordinator)]
+    entities: list[SensorEntity] = [
+        SwitchBotVacuumError(coordinator),
+        SwitchBotVacuumBattery(coordinator),
+    ]
 
     if device_type not in (DEVICE_TYPE_K10, DEVICE_TYPE_K10PRO):
         entities.extend(
@@ -107,6 +110,27 @@ async def async_setup_entry(
 
     _async_add_new_rooms()
     coordinator.async_add_listener(_async_add_new_rooms)
+
+
+class SwitchBotVacuumBattery(CoordinatorEntity[SwitchBotS10Coordinator], SensorEntity):
+    """Report battery through a sensor instead of the removed vacuum feature."""
+
+    _attr_device_class = SensorDeviceClass.BATTERY
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_has_entity_name = True
+    _attr_name = "Battery"
+
+    def __init__(self, coordinator: SwitchBotS10Coordinator) -> None:
+        """Initialize the battery sensor on the vacuum's device."""
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.device_mac}_battery"
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, coordinator.device_mac)})
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the last battery value reported by the coordinator."""
+        return self.coordinator.data.get("battery")
 
 
 class SwitchBotRoomSensor(CoordinatorEntity[SwitchBotS10Coordinator], SensorEntity):
