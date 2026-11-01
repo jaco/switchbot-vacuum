@@ -1,23 +1,24 @@
 """Data update coordinator for SwitchBot Vacuum."""
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 import logging
+import math
 import time
 import uuid
 import zipfile
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 import aiohttp
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
-
-from .k10_api import CLEAN_MODES, WONDER, K10Api, K10ProtocolError, room_names
 
 from .const import (
     API_AUTH_HOST,
@@ -30,10 +31,16 @@ from .const import (
     CONF_USERNAME,
     DEVICE_TYPE_K10,
     DEVICE_TYPE_K10PRO,
-    SUPPORTED_DEVICE_TYPES,
     DOMAIN,
     K10_WORK_STATUS_STANDBY,
-    PROP_AWS_CREDS,
+    K10PRO_PROP_AUTO_RESTART,
+    K10PRO_PROP_BATTERY,
+    K10PRO_PROP_CHILD_LOCK,
+    K10PRO_PROP_DUST_COLECT_FREQUENCY,
+    K10PRO_PROP_DUST_COLECT_TIME,
+    K10PRO_PROP_ONLINE,
+    K10PRO_PROP_SUCTION_POW_LEVEL,
+    K10PRO_PROP_WORK_STATUS,
     PROP_BATTERY,
     PROP_CLEAN_MODE,
     PROP_CLEAN_SUMMARY,
@@ -44,19 +51,88 @@ from .const import (
     PROP_ROOM_PLANS,
     PROP_S3_BUCKET,
     PROP_WORK_STATUS,
-    K10PRO_PROP_ONLINE,
-    K10PRO_PROP_BATTERY,
-    K10PRO_PROP_SUCTION_POW_LEVEL,
-    K10PRO_PROP_WORK_STATUS,
-    K10PRO_PROP_DUST_COLECT_FREQUENCY,
-    K10PRO_PROP_CHILD_LOCK,
-    K10PRO_PROP_DUST_COLECT_TIME,
-    K10PRO_PROP_AUTO_RESTART,
     S3_REGION,
+    SUPPORTED_DEVICE_TYPES,
     TOKEN_REFRESH_SECONDS,
     UPDATE_INTERVAL_SECONDS,
 )
+from .k10_api import CLEAN_MODES, WONDER, K10Api, K10ProtocolError, room_names
+
 _LOGGER = logging.getLogger(__name__)
+
+
+def _restore_rooms(hass: HomeAssistant, entry: ConfigEntry | None) -> dict[str, str]:
+    """Restore the room cache, migrating previously discovered room entities."""
+    if entry is None:
+        return {}
+    cached = entry.options.get("cached_rooms")
+    if isinstance(cached, dict):
+        return {
+            room_id: name for room_id, name in cached.items()
+            if isinstance(room_id, str) and isinstance(name, str)
+        }
+
+    # Upgrade recovery only: these unique IDs and original names were created
+    # from a successful cloud map download. Never use names of other devices.
+    prefix = f"{entry.data.get(CONF_DEVICE_MAC)}_room_"
+    registry = er.async_get(hass)
+    rooms = {}
+    for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if (
+            entity.platform == DOMAIN
+            and entity.domain == "sensor"
+            and entity.unique_id.startswith(prefix)
+            and entity.original_name
+        ):
+            room_id = entity.unique_id[len(prefix):]
+            if room_id:
+                rooms[room_id] = entity.original_name
+    return rooms
+
+
+def _download_map_rooms(
+    creds: dict[str, Any], bucket: str, resource: str, region: str = S3_REGION
+) -> dict[str, str] | None:
+    """Download and decode an S10 map entirely in an executor thread.
+
+    aiobotocore lazily reads service models and certificates even during async
+    requests. Give this self-contained operation a private loop in the worker;
+    no SDK session, client, response or task crosses the thread boundary.
+    """
+    import aiobotocore.session
+    from aiobotocore.config import AioConfig
+
+    async def download() -> bytes:
+        session = aiobotocore.session.get_session()
+        async with session.create_client(
+            "s3",
+            region_name=region,
+            aws_access_key_id=creds["accessKeyId"],
+            aws_secret_access_key=creds["secretAccessKey"],
+            aws_session_token=creds["sessionToken"],
+            config=AioConfig(
+                connect_timeout=10,
+                read_timeout=30,
+                retries={"total_max_attempts": 2, "mode": "standard"},
+            ),
+        ) as s3:
+            response = await s3.get_object(Bucket=bucket, Key=resource)
+            async with response["Body"] as body:
+                return await body.read()
+
+    zip_bytes = asyncio.run(download())
+
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        if "labels.json" not in zf.namelist():
+            return None
+        labels = json.loads(zf.read("labels.json"))
+    rooms = {}
+    for room in labels.get("data", []):
+        room_id = room.get("id", "")
+        if room_id.startswith("ROOM_"):
+            rooms[room_id] = room.get("name", room_id)
+    return rooms
+
 
 STATUS_PROPS = [PROP_ONLINE, PROP_BATTERY, PROP_WORK_STATUS, PROP_ERROR_CODE,
                 PROP_CLEAN_MODE, PROP_CLEAN_SUMMARY, PROP_FIRMWARE]
@@ -91,8 +167,9 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
         self.user_id: str | None = None
         self._uuid: str = str(uuid.uuid4())
         self._token_expiry: float = 0
-        self._rooms: dict[str, str] = {}  # ROOM_ID -> name
+        self._rooms: dict[str, str] = _restore_rooms(hass, entry)
         self._last_room_refresh: float = 0
+        self._last_room_attempt: float | None = None
         self._k10_api: K10Api | None = None
         self._k10_group_id: str | None = None
 
@@ -430,6 +507,70 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
                 rooms[room_id] = name
         return rooms
 
+    def _persist_rooms(self) -> None:
+        """Persist discovered rooms through HA's config-entry API."""
+        if self.entry.options.get("cached_rooms") != self._rooms:
+            self.hass.config_entries.async_update_entry(
+                self.entry,
+                options={**self.entry.options, "cached_rooms": dict(self._rooms)},
+            )
+
+    async def async_get_map_policy(self) -> tuple[dict[str, Any], str]:
+        """Get fresh read credentials, as the S10 app's getS3Policy does.
+
+        Shadow property 1130 contains an old credential snapshot. The app uses
+        task/getPolicy to obtain a current session without starting a task.
+        """
+        await self._ensure_token()
+        session = async_get_clientsession(self.hass)
+        async with session.post(
+            f"{self.wonderlab_endpoint}/sweeper/v1/task/getPolicy",
+            headers=self._headers(),
+            json={"deviceID": self.device_mac},
+            timeout=aiohttp.ClientTimeout(total=API_TIMEOUT),
+            allow_redirects=False,
+        ) as response:
+            if response.status != 200:
+                raise UpdateFailed(f"Map policy request failed (HTTP {response.status})")
+            result = await response.json()
+
+        if not isinstance(result, dict) or result.get("resultCode") != 100:
+            code = _status_code_for_log(
+                result.get("resultCode") if isinstance(result, dict) else None
+            )
+            raise UpdateFailed(f"Map policy request failed (resultCode {code})")
+        policy = result.get("data")
+        fields = ("AccessKeyId", "SecretAccessKey", "SessionToken")
+        if not isinstance(policy, dict) or not all(
+            isinstance(policy.get(key), str) and policy[key] for key in fields
+        ):
+            raise UpdateFailed("Map policy credentials are incomplete")
+
+        expiration = policy.get("Expiration")
+        try:
+            if isinstance(expiration, str):
+                parsed = datetime.fromisoformat(expiration)
+                if parsed.tzinfo is None:
+                    raise ValueError("Missing timezone")
+                expires_at = parsed.timestamp()
+            elif type(expiration) in (int, float):
+                expires_at = float(expiration)
+            else:
+                raise ValueError("Invalid expiration")
+        except (ValueError, OverflowError):
+            raise UpdateFailed("Map policy expiration is invalid") from None
+        if not math.isfinite(expires_at) or not expires_at > time.time() + 30:
+            raise UpdateFailed("Map policy credentials are already expired")
+
+        region = policy.get("awsRegion") or S3_REGION
+        if not isinstance(region, str):
+            raise UpdateFailed("Map policy region is invalid")
+        return {
+            "accessKeyId": policy["AccessKeyId"],
+            "secretAccessKey": policy["SecretAccessKey"],
+            "sessionToken": policy["SessionToken"],
+        }, region
+
     async def async_refresh_rooms(self) -> None:
         """Refresh rooms — branches per device type."""
         if self._is_k10() or self._is_k10_pro():
@@ -439,7 +580,7 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
         # S10: download map from S3
         try:
             props = await self.async_get_properties(
-                [PROP_MAP_INFO, PROP_AWS_CREDS, PROP_S3_BUCKET, PROP_ROOM_PLANS]
+                [PROP_MAP_INFO, PROP_S3_BUCKET, PROP_ROOM_PLANS]
             )
         except UpdateFailed:
             _LOGGER.warning("Failed to fetch map properties for room refresh")
@@ -450,20 +591,12 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
         if rooms_from_plans:
             self._rooms = rooms_from_plans
             self._last_room_refresh = time.time()
+            self._persist_rooms()
             _LOGGER.info("Loaded %d rooms from room plans property", len(rooms_from_plans))
             return
 
-        creds = props.get(PROP_AWS_CREDS)
         map_info = props.get(PROP_MAP_INFO)
         bucket = props.get(PROP_S3_BUCKET, "prod-eu-sweeper-origin")
-
-        if not creds or not isinstance(creds, dict):
-            _LOGGER.warning("No AWS credentials in property %s", PROP_AWS_CREDS)
-            return
-
-        if creds.get("expiration", 0) < time.time():
-            _LOGGER.debug("AWS credentials expired, skipping S3 map download")
-            return
 
         resource = None
         if isinstance(map_info, dict):
@@ -474,45 +607,36 @@ class SwitchBotS10Coordinator(DataUpdateCoordinator):
             return
 
         try:
-            import aiobotocore.session
-            boto_session = aiobotocore.session.get_session()
-            async with boto_session.create_client(
-                "s3",
-                region_name=S3_REGION,
-                aws_access_key_id=creds["accessKeyId"],
-                aws_secret_access_key=creds["secretAccessKey"],
-                aws_session_token=creds["sessionToken"],
-            ) as s3:
-                resp = await s3.get_object(Bucket=bucket, Key=resource)
-                zip_bytes = await resp["Body"].read()
+            creds, region = await self.async_get_map_policy()
+            rooms = await self.hass.async_add_executor_job(
+                _download_map_rooms, creds, bucket, resource, region
+            )
         except Exception as exc:
-            _LOGGER.warning("Failed to download map from S3: %s", exc)
+            # SDK exceptions may contain signed URLs or cloud metadata.
+            _LOGGER.warning(
+                "Failed to download or parse S3 map (%s)", type(exc).__name__
+            )
             return
 
-        try:
-            with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-                if "labels.json" in zf.namelist():
-                    labels = json.loads(zf.read("labels.json"))
-                    rooms = {}
-                    for room in labels.get("data", []):
-                        room_id = room.get("id", "")
-                        name = room.get("name", room_id)
-                        if room_id.startswith("ROOM_"):
-                            rooms[room_id] = name
-                    self._rooms = rooms
-                    self._last_room_refresh = time.time()
-                    _LOGGER.info("Loaded %d rooms from map", len(rooms))
-        except Exception as exc:
-            _LOGGER.warning("Failed to parse map zip: %s", exc)
+        if rooms is not None:
+            self._rooms = rooms
+            self._last_room_refresh = time.time()
+            self._persist_rooms()
+            _LOGGER.info("Loaded %d rooms from map", len(rooms))
 
     async def _background_room_refresh(self) -> None:
         """Refresh rooms in the background so it doesn't block coordinator updates."""
+        # Keep failed background downloads from requesting a policy every poll.
+        now = time.monotonic()
+        if self._last_room_attempt is not None and now - self._last_room_attempt < 300:
+            return
+        self._last_room_attempt = now
         try:
             await self.async_refresh_rooms()
             if self._rooms:
                 self.async_set_updated_data(self.data | {"rooms": self._rooms})
-        except Exception:
-            _LOGGER.debug("Background room refresh failed", exc_info=True)
+        except Exception as exc:
+            _LOGGER.debug("Background room refresh failed (%s)", type(exc).__name__)
 
     @property
     def rooms(self) -> dict[str, str]:

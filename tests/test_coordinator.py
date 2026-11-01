@@ -30,6 +30,8 @@ def mock_entry():
     """Create a mock config entry."""
     entry = MagicMock()
     entry.data = {"username": "test@test.com", "password": "testpass", "device_mac": "AABBCCDDEEFF"}
+    # These HTTP tests do not load HA registries; start with an explicit room cache.
+    entry.options = {"cached_rooms": {}}
     entry.entry_id = "test_entry_id"
     return entry
 
