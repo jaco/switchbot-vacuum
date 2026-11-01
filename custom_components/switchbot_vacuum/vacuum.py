@@ -141,7 +141,6 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
         | VacuumEntityFeature.RETURN_HOME
         | VacuumEntityFeature.FAN_SPEED
         | VacuumEntityFeature.SEND_COMMAND
-        | VacuumEntityFeature.BATTERY
     )
     def __init__(self, coordinator: SwitchBotS10Coordinator) -> None:
         """Initialize."""
@@ -171,11 +170,6 @@ class SwitchBotS10Vacuum(CoordinatorEntity[SwitchBotS10Coordinator], StateVacuum
         if activity is None:
             _LOGGER.debug("Unknown work_status=%s for %s", status, self.coordinator.device_mac)
         return activity
-
-    @property
-    def battery_level(self) -> int | None:
-        """Return battery level."""
-        return self.coordinator.data.get("battery")
 
     @property
     def fan_speed(self) -> str | None:

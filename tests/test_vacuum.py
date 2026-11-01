@@ -76,11 +76,6 @@ class TestVacuumState:
         vac = SwitchBotS10Vacuum(mock_coordinator)
         assert vac.activity.value == "idle"
 
-    def test_battery_level(self, mock_coordinator):
-        """Test battery level is read from data."""
-        vac = SwitchBotS10Vacuum(mock_coordinator)
-        assert vac.battery_level == 85
-
     def test_fan_speed(self, mock_coordinator):
         """Test fan speed maps from fan_level."""
         vac = SwitchBotS10Vacuum(mock_coordinator)
